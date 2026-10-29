@@ -13,3 +13,23 @@ test('static hang, small jitter and a single-frame spike never count',()=>{const
 test('occlusion, time gap, pause and moving hands cannot bridge a cycle',()=>{for(const mode of ['missing','gap','pause','hands']){const e=new PullupPhaseEngine();let t=feed(e,165,165,400,0);t=feed(e,165,65,700,t);if(mode==='missing'){for(let i=0;i<10;i++)e.update(null,t+i*100,480,480);t+=1000;}if(mode==='gap')t+=1000;if(mode==='pause')e.pause();t=feed(e,65,165,700,t,40,p=>mode==='hands'?p.map(v=>({...v,x:v.x+.2})):p);feed(e,165,165,400,t);assert.equal(e.count,0,mode);}});
 test('count stable at 10 and 25 fps and under horizontal mirroring',()=>{for(const step of [40,100])for(const mirror of [false,true]){const e=new PullupPhaseEngine();cycle(e,135,65,0,step,p=>mirror?p.map(v=>({...v,x:1-v.x})):p);assert.equal(e.count,1);}});
 test('duplicate and backwards timestamps do not create cycles; reset clears history',()=>{const e=new PullupPhaseEngine();cycle(e,165,65);cycle(e,165,65);assert.equal(e.count,1);e.reset();assert.equal(e.count,0);assert.equal(e.completed.length,0);});
+test('upper event arrives before full return, once per ascent, with the full cycle linked later',()=>{
+ const e=new PullupPhaseEngine();let t=feed(e,135,135,400,0);
+ t=feed(e,135,65,700,t);t=feed(e,65,65,200,t);t=feed(e,65,100,300,t);
+ assert.equal(e.ascents.length,1);assert.equal(e.count,0);
+ const event=structuredClone(e.ascents[0]);assert.ok(event.confirmedAt>event.top);
+ t=feed(e,100,135,400,t);feed(e,135,135,400,t);
+ assert.equal(e.count,1);assert.equal(e.completed[0].ascentIndex,event.index);
+ assert.deepEqual(e.ascents[0],event);e.pause();assert.equal(e.ascents.length,1);
+ e.reset();assert.equal(e.ascents.length,0);
+});
+test('a settled pose after lost wrists cannot certify the original bottom; the next observed return restores it',()=>{
+ const e=new PullupPhaseEngine();let t=feed(e,135,135,400,0);
+ const shifted=p=>p.map(v=>({...v,x:v.x+.16}));
+ t=cycle(e,135,65,t,40,shifted);
+ assert.equal(e.ascents.length,1);assert.equal(e.ascents[0].bottomReference.state,'unavailable');
+ assert.equal(e.ascents[0].bottomReference.interruption,'wrist_shift');
+ t=feed(e,135,65,700,t,40,shifted);t=feed(e,65,135,700,t,40,shifted);feed(e,135,135,400,t,40,shifted);
+ assert.equal(e.ascents.length,2);assert.equal(e.ascents[1].bottomReference.state,'observed');
+ assert.equal(e.ascents[1].bottomReference.origin,'observed_return');
+});

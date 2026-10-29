@@ -19,7 +19,7 @@ const req=createRequire('/home/w1tas/.cache/codex-runtimes/codex-primary-runtime
   await page.locator('#pullup-play').click();
   await page.waitForFunction(()=>['ended','error','stalled'].includes(document.getElementById('pullups').dataset.mode),null,{timeout:(item.duration+30)*1000});
   const run=await page.evaluate(()=>({mode:document.getElementById('pullups').dataset.mode,frames:Number(document.getElementById('pullups').dataset.frames),count:Number(document.getElementById('pullup-count').textContent),time:document.getElementById('pullup-video').currentTime,duration:document.getElementById('pullup-video').duration}));
-  await page.waitForFunction(()=>Number(document.getElementById('pullups').dataset.modelDecisions)===Number(document.getElementById('pullup-count').textContent));
+  await page.waitForFunction(()=>Number(document.getElementById('pullups').dataset.modelDecisions)===Number(document.getElementById('pullups').dataset.completed));
   run.modelResults=await page.evaluate(()=>window.modelResults);
   if(run.modelResults.some(r=>!['measured','unavailable'].includes(r.rep.model?.geometry?.state)))throw Error('Missing or misleading arm-range result');
   if(run.modelResults.some(r=>!['measured','unavailable'].includes(r.rep.model?.initialBottom?.state)||!['flagged','not_detected','unavailable'].includes(r.rep.model?.bottomCandidate?.state)))throw Error('Missing initial-bottom result');

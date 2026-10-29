@@ -23,12 +23,15 @@ export class PullupAnalysisSession extends PullupModelSession{
   if(this.contextStart===null&&(phase==='rising'||phase==='returning'))this.contextStart=this.frames[0]?.t??time/1000;
   super.observe(points,time,width,height,phase);
  }
+ assessAscent(rep){
+  const initialBottom=measureAutomaticBottom(this.bottomFrames,rep);
+  return {initialBottom,bottomCandidate:experimentalBottomDecision(initialBottom)};
+ }
  classify(rep){
   const full=extractModelFeatures(this.frames,rep,this.previous);
   const result=classifyFeatures(this.model,full);
   result.geometry=assessArmRange(full);
-  result.initialBottom=measureAutomaticBottom(this.bottomFrames,rep);
-  result.bottomCandidate=experimentalBottomDecision(result.initialBottom);
+  Object.assign(result,this.assessAscent(rep));
   if(full){this.previous.push(full.stats);if(this.previous.length>30)this.previous.shift();}
   return result;
  }

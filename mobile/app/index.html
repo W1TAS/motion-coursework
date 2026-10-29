@@ -2,7 +2,7 @@
 <html lang="ru">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f3f4f5"><title>Движение</title><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css"></head>
 <body><div class="shell">
-<header class="app-header"><span class="brand">Движение</span><span class="version">0.1.9 · прототип</span></header>
+<header class="app-header"><span class="brand">Движение</span><span class="version">0.1.10 · прототип</span></header>
 <main>
 <section id="home">
 <div class="intro"><h1>Тренировка</h1><p>Выберите упражнение и поставьте телефон сбоку.</p></div>
@@ -35,7 +35,7 @@
 <div class="workout-layout archive-layout">
 <div id="pullup-camera" class="camera archive-camera"><video id="pullup-video" playsinline muted preload="auto"></video><canvas id="pullup-overlay"></canvas><span class="camera-badge">АНАЛИЗ КАДРОВ</span><span id="pullup-fps" class="fps"></span></div>
 <div class="archive-panel"><label class="archive-select">Видео<select id="pullup-select" aria-label="Выбрать запись"></select></label>
-<div class="archive-analysis"><div class="archive-counter"><strong id="pullup-count">0</strong><span>завершено</span></div><h2 id="pullup-rep-title">Начало записи</h2><p id="pullup-status" class="archive-small"></p><div id="pullup-results"></div><p class="archive-small archive-disclosure">Камера должна быть неподвижной; обе руки и корпус — в кадре. Считаются и неполные движения. Показаны измерения углов, без заключения о правильности техники. Спуск нужен для разделения повторений. Перемотка сбрасывает счёт.</p></div>
+<div class="archive-analysis"><div class="archive-counter"><strong id="pullup-count">0</strong><span>подъёмов</span></div><h2 id="pullup-rep-title">Начало записи</h2><p id="pullup-status" class="archive-small"></p><div id="pullup-results"></div><p class="archive-small archive-disclosure">Камера должна быть неподвижной; обе руки и корпус — в кадре. Считаются и неполные движения. Показаны измерения углов, без заключения о правильности техники. Подъём фиксируется после прохождения верхней точки. Полный возврат нужен отдельно для модели полного цикла. Перемотка сбрасывает счёт.</p></div>
 <div class="archive-controls"><label class="archive-small" for="pullup-seek">Позиция видео <span id="pullup-time">0 с</span></label><input id="pullup-seek" type="range" min="0" max="1" step="0.01" value="0" disabled><div class="controls"><button id="pullup-play" class="primary" disabled>Начать разбор</button><button id="pullup-restart" class="secondary" disabled>Сначала</button></div></div>
 </div></div></section>
 </main><footer>Курсовой проект</footer>

@@ -1,5 +1,6 @@
 import {PoseStream} from './pose-stream.mjs';
 import {PullupPhaseEngine as PullupEngine} from './pullup-phases.mjs';
+import {pullupResultView} from './pullup-presentation.mjs';
 const $=id=>document.getElementById(id);
 const bones=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 let manifest=null,generation=0,epoch=0,onBack=null,abort=null,objectURL=null,videoBlob=null,pipeline=null;
@@ -13,12 +14,13 @@ function startClassifier(token,signal){
   const timeout=setTimeout(()=>reject(Error('Классификатор не запустился')),45000);
   const stop=()=>{clearTimeout(timeout);worker.terminate();reject(new DOMException('Загрузка отменена','AbortError'));};
   signal.addEventListener('abort',stop,{once:true});
-  worker.onerror=()=>{clearTimeout(timeout);if(token!==generation)return;classifierBroken=true;worker.terminate();$('pullups').dataset.model='error';const rep=engine.completed.at(-1);if(rep){rep.model={error:'Модель остановилась. Выберите запись повторно.'};render();}reject(Error('Ошибка классификатора'));};
+  worker.onerror=()=>{clearTimeout(timeout);if(token!==generation)return;classifierBroken=true;worker.terminate();$('pullups').dataset.model='error';const rep=engine.completed.at(-1),ascent=engine.ascents.at(-1);if(rep)rep.model={error:'Модель остановилась. Выберите запись повторно.'};if(ascent)ascent.analysis={error:'Модель недоступна. Выберите запись повторно.'};render();reject(Error('Ошибка классификатора'));};
   worker.onmessage=({data})=>{
    if(token!==generation)return;
    if(data.type==='ready'){clearTimeout(timeout);$('pullups').dataset.model='ready';resolve();}
+   else if(data.type==='ascent-decision'&&data.epoch===modelEpoch){const ascent=engine.ascents.find(r=>r.index===data.index);if(ascent){ascent.analysis=data.decision;render();}}
    else if(data.type==='decision'&&data.epoch===modelEpoch){const rep=engine.completed.find(r=>r.index===data.index);if(rep){rep.model=data.decision;modelDecisions++;$('pullups').dataset.modelDecisions=String(modelDecisions);render();window.dispatchEvent(new CustomEvent('motion:pullup-result',{detail:{rep,elapsedMs:data.elapsedMs}}));}}
-   else if(data.type==='error'){clearTimeout(timeout);if(data.index){const rep=engine.completed.find(r=>r.index===data.index);if(rep&&data.epoch===modelEpoch){rep.model={error:'Не удалось получить оценку модели'};render();}}else reject(Error(data.message));}
+   else if(data.type==='error'){clearTimeout(timeout);if(data.ascentIndex&&data.epoch===modelEpoch){const ascent=engine.ascents.find(r=>r.index===data.ascentIndex);if(ascent){ascent.analysis={error:'Не удалось проверить начало подъёма'};render();}}else if(data.index){const rep=engine.completed.find(r=>r.index===data.index);if(rep&&data.epoch===modelEpoch){rep.model={error:'Не удалось получить оценку модели'};render();}}else reject(Error(data.message));}
   };worker.postMessage({type:'init'});
  });
 }
@@ -27,26 +29,18 @@ function feedback(title,text){$('pullup-rep-title').textContent=title;$('pullup-
 function timeline(){const v=video();$('pullup-time').textContent=`${v.currentTime.toFixed(1)} / ${Number.isFinite(v.duration)?v.duration.toFixed(1):'—'} с`;$('pullup-seek').value=String(v.currentTime);}
 function clearSkeleton(){const c=$('pullup-overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
 function render(result){
- $('pullup-count').textContent=String(engine.count);
+ $('pullup-count').textContent=String(engine.ascents.length);$('pullups').dataset.completed=String(engine.count);
+ $('pullups').dataset.ascents=String(engine.ascents.length);
  if(result&&mode==='running')feedback(result.message,result.valid?`Угол локтя сейчас: ${Math.round(result.elbow)}°`:'Счёт ждёт пригодных точек тела');
- const last=engine.completed.at(-1),box=$('pullup-results'),expanded=box.querySelector('details')?.open??false;box.replaceChildren();
- if(last){
-  const geometry=last.model?.geometry;
-  const rows=[`Повторение № ${last.index}`];
-  const bottom=last.model?.initialBottom;
-  if(bottom?.state==='measured'&&Number.isFinite(bottom.angle3d))rows.push(`Руки перед подъёмом: ${Math.round(bottom.angle3d)}° (оценка 3D)`);
-  if(geometry&&geometry.state!=='unavailable'){
-   rows.push(`Угол локтя за цикл: ${Math.round(geometry.top)}–${Math.round(geometry.bottom)}°`);
-   rows.push(last.lateral==='visible'?'При подъёме заметно боковое смещение корпуса':'Боковое смещение при подъёме не обнаружено');
-   rows.push('Правильность подтягивания не подтверждена: высота подбородка над перекладиной не проверяется.');
-  }else rows.push(geometry?.reason??(last.model?.error?'Оценка диапазона сейчас недоступна':'Измеряю диапазон рук…'));
-  for(const text of rows){const p=document.createElement('p');p.textContent=text;box.append(p);}
+ const last=engine.ascents.at(-1),box=$('pullup-results'),expanded=box.querySelector('details')?.open??false;box.replaceChildren();
+ const view=pullupResultView(last,engine.completed.find(r=>r.ascentIndex===last?.index));
+ if(view){
+  for(const text of view.rows){const p=document.createElement('p');p.textContent=text;box.append(p);}
   const details=document.createElement('details'),title=document.createElement('summary');details.open=expanded;title.className='model-title';title.textContent='Экспериментальная модель';details.append(title);box.append(details);
   const warning=document.createElement('p');warning.textContent='Надёжность этих заключений пока недостаточна. Они показаны для проверки модели.';details.append(warning);
-  if(last.model?.bottomCandidate){const candidate=last.model.bottomCandidate,p=document.createElement('p');p.dataset.bottomState=candidate.state;p.textContent='Разгибание перед подъёмом, новая проверка: '+(candidate.state==='flagged'?'возможно неполное':candidate.state==='not_detected'?'недоразгибание не обнаружено':candidate.reason);details.append(p);}
-  if(!last.model){const p=document.createElement('p');p.textContent='Вычисляю оценку…';details.append(p);}
-  else if(last.model.error){const p=document.createElement('p');p.textContent=last.model.error;details.append(p);}
-  else for(const [target,name]of [['partial','Амплитуда'],['swing','Раскачивание']]){const result=last.model.targets[target],p=document.createElement('p');p.dataset.modelTarget=target;p.dataset.modelState=result.state;p.textContent=name+': '+(result.state==='flagged'?'возможная ошибка':result.state==='not_detected'?'ошибка не обнаружена':result.reason??'недостаточно данных');details.append(p);}
+  if(view.bottomCandidate){const candidate=view.bottomCandidate,p=document.createElement('p');p.dataset.bottomState=candidate.state;p.textContent='Разгибание перед подъёмом, новая проверка: '+(candidate.state==='flagged'?'возможно неполное':candidate.state==='not_detected'?'недоразгибание не обнаружено':candidate.reason);details.append(p);}
+  if(view.modelMessage){const p=document.createElement('p');p.textContent=view.modelMessage;details.append(p);}
+  if(view.targets)for(const [target,name]of [['partial','Амплитуда'],['swing','Раскачивание']]){const result=view.targets[target],p=document.createElement('p');p.dataset.modelTarget=target;p.dataset.modelState=result.state;p.textContent=name+': '+(result.state==='flagged'?'возможная ошибка':result.state==='not_detected'?'ошибка не обнаружена':result.reason??'недостаточно данных');details.append(p);}
  }
 }
 function draw(points,width,height){
@@ -91,9 +85,11 @@ function schedule(){
   pipeline.frame(video(),time,frameEpoch).then(data=>{
    if(!data||token!==generation||data.epoch!==epoch)return;
    processed++;$('pullups').dataset.frames=String(processed);
-   const before=engine.count,r=engine.update(data.landmarks,data.sourceTime*1000,data.width,data.height);
+   const before=engine.count,ascentsBefore=engine.ascents.length,r=engine.update(data.landmarks,data.sourceTime*1000,data.width,data.height);
+   const ascent=engine.ascents.length>ascentsBefore?engine.ascents.at(-1):null;
+   if(classifierBroken&&ascent)ascent.analysis={error:'Модель недоступна. Выберите запись повторно.'};
    if(classifierBroken&&engine.count>before)engine.completed.at(-1).model={error:'Модель недоступна. Выберите запись повторно.'};
-   if(!classifierBroken)classifier?.postMessage({type:'observe',points:data.landmarks,worldLandmarks:data.worldLandmarks,time:data.sourceTime*1000,width:data.width,height:data.height,phase:r.phase,epoch:modelEpoch,rep:engine.count>before?engine.completed.at(-1):null});
+   if(!classifierBroken)classifier?.postMessage({type:'observe',points:data.landmarks,worldLandmarks:data.worldLandmarks,time:data.sourceTime*1000,width:data.width,height:data.height,phase:r.phase,epoch:modelEpoch,ascent,rep:engine.count>before?engine.completed.at(-1):null});
    draw(data.landmarks,data.width,data.height);render(r);
    if(previousPoseTime!==null&&data.sourceTime>previousPoseTime)$('pullup-fps').textContent=`${Math.round(1/(data.sourceTime-previousPoseTime))} кадр/с`;
    previousPoseTime=data.sourceTime;

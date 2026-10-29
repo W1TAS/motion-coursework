@@ -8,7 +8,8 @@ self.onmessage=async({data})=>{
   }else if(data.type==='reset')session?.reset();
   else if(data.type==='observe'){
    session.observe(data.points,data.time,data.width,data.height,data.phase,data.worldLandmarks);
+   if(data.ascent){const decision=session.assessAscent(data.ascent);self.postMessage({type:'ascent-decision',epoch:data.epoch,index:data.ascent.index,decision});}
    if(data.rep){const started=performance.now(),decision=session.classify(data.rep);self.postMessage({type:'decision',epoch:data.epoch,index:data.rep.index,decision,elapsedMs:performance.now()-started});}
   }
- }catch(e){self.postMessage({type:'error',epoch:data.epoch,index:data.rep?.index,message:String(e.message??e)});}
+ }catch(e){self.postMessage({type:'error',epoch:data.epoch,index:data.rep?.index,ascentIndex:data.ascent?.index,message:String(e.message??e)});}
 };

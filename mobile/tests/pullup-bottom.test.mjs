@@ -50,3 +50,36 @@ test('session drops duplicate timestamps, bounds history, and clears 3D data on 
  assert.equal(session.bottomFrames.length,1);assert.equal(session.bottomFrames[0].now,25000);
  session.reset();assert.equal(session.bottomFrames.length,0);
 });
+test('initial measurement requires both arms, temporal context and stable wrists',()=>{
+ const frames=[920,960,1000,1040,1080].map(t=>frame(t));
+ const occluded=structuredClone(frames);for(const f of occluded)f.landmarks[13].visibility=.1;
+ assert.equal(measureInitialBottom(occluded,1000).state,'unavailable');
+ assert.equal(measureInitialBottom(frames.slice(2),1000).state,'unavailable');
+ const jump=structuredClone(frames);jump[2].landmarks[15].x+=.12;
+ assert.equal(measureInitialBottom(jump,1000).state,'unavailable');
+});
+test('lost onset is not replaced by a later extended arm or by a previous tracking segment',()=>{
+ const frames=[];for(let t=700;t<=1400;t+=40)frames.push(frame(t,165));
+ const rep={sampleStart:1200,start:1400,top:2000,bottomReference:{state:'unavailable',origin:'settled',interruption:'tracking_gap'}};
+ assert.equal(measureAutomaticBottom(frames,rep).state,'unavailable');
+ const limited={...rep,bottomReference:{state:'observed'},contextStart:1320};
+ assert.equal(measureAutomaticBottom(frames,limited).state,'unavailable');
+});
+test('2D caches remain measurable without inventing a 3D verdict',()=>{
+ const frames=[];for(let t=700;t<=1400;t+=40)frames.push({...frame(t),worldLandmarks:null});
+ const m=measureAutomaticBottom(frames,{sampleStart:1200,start:1400,top:2000});
+ assert.equal(m.state,'measured');assert.equal(m.angle3d,null);
+ assert.equal(experimentalBottomDecision(m).state,'unavailable');
+});
+test('a stable earlier top cannot substitute for an unstable lower position',()=>{
+ const frames=[];
+ for(let t=700;t<=1400;t+=40){
+  const f=frame(t,130);
+  if(t<1100)for(const i of [11,12,13,14,23,24])f.landmarks[i].y-=.16;
+  else f.landmarks[15].x+=(t%80===60?.12:-.12);
+  frames.push(f);
+ }
+ const m=measureAutomaticBottom(frames,{sampleStart:1200,start:1400,top:2000,
+  bottomReference:{state:'observed',height:(.38-.14)/.27}});
+ assert.equal(m.state,'unavailable');
+});

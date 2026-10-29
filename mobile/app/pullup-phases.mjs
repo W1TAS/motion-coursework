@@ -7,9 +7,13 @@ export const PHASE_RULES=Object.freeze({settleMs:180,settleRange:.06,startLift:.
 const median=a=>a.slice().sort((x,y)=>x-y)[Math.floor(a.length/2)];
 export class PullupPhaseEngine{
  constructor(){this.reset();}
- reset(){this.count=0;this.completed=[];this.lastTime=null;this.lastValid=null;this.breakCycle();}
- breakCycle(){this.phase='waiting';this.history=[];this.stable=[];this.bottom=null;this.cycle=null;this.turnSince=null;this.turnFrames=0;this.waitingLow=null;this.waitingBottom=null;}
- pause(){this.lastTime=null;this.lastValid=null;this.breakCycle();}
+ reset(){this.count=0;this.completed=[];this.ascents=[];this.lastTime=null;this.lastValid=null;this.needsObservedBottom=false;this.interruption=null;this.breakCycle();}
+ breakCycle(reason=null){
+  this.phase='waiting';this.history=[];this.stable=[];this.bottom=null;this.cycle=null;this.turnSince=null;this.turnFrames=0;this.waitingLow=null;this.waitingBottom=null;
+  this.observationStart=null;this.bottomOrigin=null;
+  if(reason){this.needsObservedBottom=true;this.interruption=reason;}
+ }
+ pause(){this.lastTime=null;this.lastValid=null;this.breakCycle('paused');}
  smooth(m,time){
   this.history.push({height:m.height,elbow:m.elbow,t:time});
   this.history=this.history.filter(v=>time-v.t<=100).slice(-3);
@@ -18,31 +22,45 @@ export class PullupPhaseEngine{
  start(m){
   this.phase='rising';this.cycle={sampleStart:this.bottom.t,start:m.t,bottom:this.bottom,
    peak:m,minElbow:m.elbow,maxElbow:this.bottom.elbow,minLateral:m.lateral,maxLateral:m.lateral,
-   lift:Math.max(0,this.bottom.height-m.height),lower:null};
+   lift:Math.max(0,this.bottom.height-m.height),lower:null,ascentIndex:null,
+   contextStart:Math.max(this.observationStart??this.bottom.t,this.ascents.at(-1)?.top??-Infinity),
+   bottomReference:{state:this.needsObservedBottom?'unavailable':'observed',origin:this.bottomOrigin,height:this.bottom.height,
+    interruption:this.needsObservedBottom?this.interruption:null}};
   this.turnSince=null;this.turnFrames=0;
+ }
+ confirmAscent(time){
+  const c=this.cycle;if(!c||c.ascentIndex!==null)return;
+  c.ascentIndex=this.ascents.length+1;
+  this.ascents.push({index:c.ascentIndex,start:c.start,sampleStart:c.sampleStart,top:c.peak.t,
+   confirmedAt:time,minElbow:c.minElbow,maxElbow:c.maxElbow,topElbow:c.peak.elbow,
+   lift:c.lift,lateralRange:c.maxLateral-c.minLateral,contextStart:c.contextStart,
+   bottomReference:{...c.bottomReference}});
  }
  finish(lower){
   const c=this.cycle;
   if(lower.t-c.sampleStart>=PHASE_RULES.minRepMs){
    this.count++;
-   this.completed.push({index:this.count,start:c.start,sampleStart:c.sampleStart,end:lower.t,
+   this.completed.push({index:this.count,ascentIndex:c.ascentIndex,start:c.start,sampleStart:c.sampleStart,end:lower.t,
     top:c.peak.t,minElbow:c.minElbow,maxElbow:c.maxElbow,
     bottomElbow:c.bottom.elbow,topElbow:c.peak.elbow,lift:c.lift,
-    lateralRange:c.maxLateral-c.minLateral,lateral:c.maxLateral-c.minLateral>PULLUP_RULES.lateralRange?'visible':'not_detected'});
+    lateralRange:c.maxLateral-c.minLateral,lateral:c.maxLateral-c.minLateral>PULLUP_RULES.lateralRange?'visible':'not_detected',
+    contextStart:c.contextStart,bottomReference:{...c.bottomReference}});
   }
-  this.phase='ready';this.bottom=lower;this.cycle=null;this.turnSince=null;this.turnFrames=0;
+  this.phase='ready';this.bottom=lower;this.bottomOrigin='observed_return';this.needsObservedBottom=false;
+  this.cycle=null;this.turnSince=null;this.turnFrames=0;
  }
  update(points,time,width=360,height=640){
   if(this.lastTime!==null&&time<=this.lastTime)return this.result({valid:false,message:'Ожидание нового кадра'});
-  if(this.lastValid!==null&&time-this.lastValid>PULLUP_RULES.maxGap)this.breakCycle();
+  if(this.lastValid!==null&&time-this.lastValid>PULLUP_RULES.maxGap)this.breakCycle('tracking_gap');
   this.lastTime=time;const measured=measurePullup(points,width,height);
   if(!measured.valid){this.history=[];this.stable=[];this.turnSince=null;this.turnFrames=0;return this.result(measured);}
   this.lastValid=time;const m=this.smooth(measured,time);
+  this.observationStart??=time;
   const anchor=this.cycle?.bottom??this.bottom;
   if(anchor&&Math.hypot(m.wrist.x-anchor.wrist.x,m.wrist.y-anchor.wrist.y)/anchor.torso>PULLUP_RULES.wristDrift){
-   this.breakCycle();return this.result({...m,message:'Смещение рук — определяю начало заново'});
+   this.breakCycle('wrist_shift');return this.result({...m,message:'Смещение рук — определяю начало заново'});
   }
-  if(this.cycle&&time-this.cycle.sampleStart>PHASE_RULES.maxRepMs)this.breakCycle();
+  if(this.cycle&&time-this.cycle.sampleStart>PHASE_RULES.maxRepMs)this.breakCycle('cycle_timeout');
   if(this.phase==='waiting'){
    // A continuous set need not pause at the bottom: an observed descent followed
    // by ascent provides a lower turning point without inventing an initial hang.
@@ -51,14 +69,14 @@ export class PullupPhaseEngine{
     (!this.waitingBottom||m.height>this.waitingBottom.height))this.waitingBottom=m;
    if(this.waitingBottom&&this.waitingBottom.height-m.height>=PHASE_RULES.startLift&&
     this.waitingBottom.elbow-m.elbow>=8){
-    this.bottom=this.waitingBottom;this.start(m);
+    this.bottom=this.waitingBottom;this.bottomOrigin='observed_turn';this.needsObservedBottom=false;this.start(m);
    }
    this.stable.push(m);this.stable=this.stable.filter(v=>time-v.t<=350);
    const recent=this.stable.filter(v=>time-v.t<=PHASE_RULES.settleMs+60);
    if(this.phase==='waiting'&&recent.length>=3&&time-recent[0].t>=PHASE_RULES.settleMs&&
     Math.max(...recent.map(v=>v.height))-Math.min(...recent.map(v=>v.height))<=PHASE_RULES.settleRange&&
     Math.max(...recent.map(v=>v.elbow))-Math.min(...recent.map(v=>v.elbow))<=12){
-    this.bottom=m;this.phase='ready';
+    this.bottom=m;this.bottomOrigin='settled';this.phase='ready';
    }
   }else if(this.phase==='ready'){
    if(m.height>this.bottom.height+.005||Math.abs(m.height-this.bottom.height)<=.005&&m.elbow>=this.bottom.elbow-2)this.bottom={...m,
@@ -76,6 +94,7 @@ export class PullupPhaseEngine{
     if(m.height>=c.peak.height+PHASE_RULES.turnRange){
      this.turnSince??=time;this.turnFrames++;
      if(enough&&this.turnFrames>=2&&time-this.turnSince>=PHASE_RULES.turnMs){
+      this.confirmAscent(time);
       this.phase='returning';c.lower=m;this.turnSince=null;this.turnFrames=0;
      }else if(!enough&&m.height>=c.bottom.height-.02){
       this.phase='ready';this.bottom=m;this.cycle=null;this.turnSince=null;this.turnFrames=0;
@@ -98,5 +117,6 @@ export class PullupPhaseEngine{
   }
   return this.result({...m,message:({waiting:'Определяю исходное положение',ready:'Нижняя точка — ожидаю подъём',rising:'Подъём',returning:'Верхняя точка пройдена — определяю возврат'})[this.phase]});
  }
- result(m){return {...m,phase:this.phase,count:this.count,last:this.completed.at(-1)??null};}
+ result(m){return {...m,phase:this.phase,count:this.count,ascentCount:this.ascents.length,
+  last:this.completed.at(-1)??null,lastAscent:this.ascents.at(-1)??null};}
 }
