@@ -1,4 +1,4 @@
-// Experimental candidate promoted unchanged from the frozen research geometry.
+// Experimental geometry; peak timing adapts to the actual processed cadence.
 import {visibleFacePoints} from './pose-face.mjs';
 // Research geometry: wrist reference versus nose/mouth. Neither point is a chin.
 export const TOP_PROXY_PROTOCOL=Object.freeze({version:'wrist-face-proxy-v1',visibility:.45,
@@ -73,6 +73,8 @@ export function measureTopProxy(frames,startMs,topMs){
 
 export const BAR_PILOT_RULES=Object.freeze({minFrames:3,minCoverage:.8,topWindowMs:200,
  peakSpanMs:100,maxGapMs:120,nearTorso:.04,minPixelTolerance:2,maxAnchorDriftAt640:6});
+export const TOP_SAMPLING_RULES=Object.freeze({fastIntervalMs:50,maxIntervalMs:120,
+ maxPeakSpanMs:240,spanIntervals:2.1,temporalRangeFraction:.5});
 const median=a=>{const s=a.slice().sort((x,y)=>x-y);return (s[Math.floor((s.length-1)/2)]+s[Math.ceil((s.length-1)/2)])/2;};
 const fail=reason=>({state:'unavailable',reason});
 function torso(f){
@@ -89,6 +91,13 @@ export function measureFaceHeight(frames,startMs,topMs,reference){
  if(!Number.isFinite(startMs)||!Number.isFinite(topMs)||topMs<=startMs)return fail('invalid_phases');
  const cfg=BAR_PILOT_RULES,local=frames.filter(f=>f.now>=startMs-1e-3&&f.now<=topMs+1e-3).sort((a,b)=>a.now-b.now);
  if(local.length<cfg.minFrames)return fail('few_frames');
+ const intervals=local.slice(1).map((f,i)=>f.now-local[i].now).filter(dt=>dt>0);
+ if(!intervals.length)return fail('few_frames');
+ const dt=median(intervals),adaptive=dt>TOP_SAMPLING_RULES.fastIntervalMs+1e-3;
+ const peakSpanMs=adaptive?Math.min(TOP_SAMPLING_RULES.maxPeakSpanMs,dt*TOP_SAMPLING_RULES.spanIntervals):cfg.peakSpanMs;
+ const topWindowMs=Math.max(cfg.topWindowMs,peakSpanMs);
+ const sampling={estimatedFps:1000/dt,intervalMs:dt,peakSpanMs,topWindowMs,adaptive};
+ if(dt>TOP_SAMPLING_RULES.maxIntervalMs+1e-3)return {...fail('low_frame_rate'),sampling};
  if(local[0].now>startMs+40+1e-3||local.at(-1).now<topMs-40-1e-3)return fail('incomplete_ascent_window');
  if(local.some(f=>Math.abs(f.width/f.height-reference.width/reference.height)>.001))return fail('image_format_changed');
  const scaleFrames=frames.filter(f=>Math.abs(f.now-startMs)<=200&&f.now<=topMs),scales=scaleFrames.map(torso).filter(x=>x!==null);
@@ -103,20 +112,31 @@ export function measureFaceHeight(frames,startMs,topMs,reference){
    const clearance=signedAboveLine(point,a,b),unit=f.height/reference.height;
    return {now:f.now,lo:clearance-reference.offsetPixels[1]*unit,hi:clearance-reference.offsetPixels[0]*unit};
   });
-  const end=local.filter(f=>f.now>=Math.max(startMs,topMs-cfg.topWindowMs)),endGood=good.filter(f=>f.now>=Math.max(startMs,topMs-cfg.topWindowMs));
+  const end=local.filter(f=>f.now>=Math.max(startMs,topMs-topWindowMs)),endGood=good.filter(f=>f.now>=Math.max(startMs,topMs-topWindowMs));
   const gap=good.length>1?Math.max(...good.slice(1).map((r,i)=>r.now-good[i].now)):Infinity;
   if(good.length<cfg.minFrames||good.length/local.length<cfg.minCoverage||endGood.length<cfg.minFrames||endGood.length/end.length<cfg.minCoverage||gap>cfg.maxGapMs||good.at(-1).now<topMs-40-1e-3){results[cue]=fail('face_coverage');continue;}
   let peak=null;
   for(let i=2;i<good.length;i++){
-   const triple=good.slice(i-2,i+1);if(triple[2].now-triple[0].now>cfg.peakSpanMs)continue;
-   const lo=median(triple.map(r=>r.lo)),hi=median(triple.map(r=>r.hi));
-   if(!peak||lo+hi>peak.lo+peak.hi)peak={lo,hi,timeMs:triple[1].now};
+   const triple=good.slice(i-2,i+1);if(triple[2].now-triple[0].now>peakSpanMs+1e-3)continue;
+   const mid=triple.map(r=>(r.lo+r.hi)/2);
+   // Sparse samples can miss a short apex. Widen uncertainty rather than
+   // pretending the median sample is the exact maximum between frames.
+   const temporal=adaptive?(Math.max(...mid)-Math.min(...mid))*TOP_SAMPLING_RULES.temporalRangeFraction:0;
+   const lo=median(triple.map(r=>r.lo))-temporal,hi=median(triple.map(r=>r.hi))+temporal;
+   if(!peak||lo+hi>peak.lo+peak.hi)peak={lo,hi,timeMs:triple[1].now,temporalUncertaintyPixels:temporal};
   }
   if(!peak){results[cue]=fail('no_sustained_peak');continue;}
+  if(adaptive){
+   // A lone higher observation may be a short true apex or a tracking jump.
+   // It can widen uncertainty, but cannot establish an "above" verdict.
+   const extra=Math.max(0,Math.max(...good.map(r=>r.hi))-peak.hi);
+   peak.hi+=extra;peak.temporalUncertaintyPixels=Math.max(peak.temporalUncertaintyPixels,extra);
+  }
   results[cue]={state:peak.hi< -tolerance?'below':peak.lo>tolerance?'above':'uncertain',timeMs:peak.timeMs,
-   clearanceIntervalPixels:[peak.lo,peak.hi],tolerancePixels:tolerance,validFrames:good.length,totalFrames:local.length};
+   clearanceIntervalPixels:[peak.lo,peak.hi],tolerancePixels:tolerance,validFrames:good.length,totalFrames:local.length,
+   ...(adaptive?{temporalUncertaintyPixels:peak.temporalUncertaintyPixels}:{})};
  }
- return {state:'measured',referenceKind:reference.kind,torsoPixels:scale,...results,
+ return {state:'measured',referenceKind:reference.kind,torsoPixels:scale,sampling,...results,
   scope:'Existing nose/mouth point versus a reference line; above never certifies chin-over-bar height or correct technique.'};
 }
 
@@ -134,8 +154,9 @@ export function assessPullupTop(frames, rep, prior){
  const result=measureFaceHeight(frames,rep.sampleStart,rep.top,reference);
  const messages={few_frames:'Мало кадров подъёма',incomplete_ascent_window:'Начало или верх не попали в обработанные кадры',
   image_format_changed:'Размер изображения изменился во время движения',body_scale_unavailable:'Не видны плечи и таз',
-  face_coverage:'Недостаточно устойчивых точек рта',no_sustained_peak:'Не найден устойчивый верх',invalid_phases:'Не определены фазы'};
- if(result.state!=='measured')return unavailable(messages[result.reason]??'Недостаточно данных для оценки высоты');
+  face_coverage:'Мало видимых точек рта или есть большие пропуски кадров',no_sustained_peak:'Мало последовательных кадров для оценки высоты',invalid_phases:'Не определены фазы'};
+ if(result.reason==='low_frame_rate')return {...unavailable(`Слишком редкая обработка: ${Math.round(result.sampling.estimatedFps)} кадр/с. Высота не оценена`),reasonCode:result.reason,sampling:result.sampling};
+ if(result.state!=='measured')return {...unavailable(messages[result.reason]??'Недостаточно данных для оценки высоты'),reasonCode:result.reason,sampling:result.sampling};
  if(result.mouth.state==='unavailable')return {...result,...unavailable(messages[result.mouth.reason]??'Недостаточно точек рта')};
  return {...result,state:result.mouth.state,experimental:true,
   scope:'Рот относительно расчётного уровня по кистям. Подбородок и реальная перекладина не обнаруживаются.'};

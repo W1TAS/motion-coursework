@@ -31,3 +31,23 @@ test('one hallucinated high face and an unstable initial wrist reference cannot 
  for(let i=0;i<11;i++)if(i%2)f[i].landmarks[15].y+=.2;
  assert.equal(assessPullupTop(f,rep,prior).state,'unavailable');
 });
+function atCadence(fps,y=.35){return frames(y).map((f,i)=>({...f,now:i*1000/fps}));}
+test('10–20 processed fps can provide three real observations without a held apex',()=>{
+ for(const fps of [20,15,12,10,9])for(const [y,state]of [[.35,'below'],[.05,'above']]){
+  const f=atCadence(fps,y),r=assessPullupTop(f,{sampleStart:f[5].now,top:f[25].now},prior);
+  assert.equal(r.state,state,`${fps} fps, y=${y}`);
+  assert.ok(Math.abs(r.sampling.estimatedFps-fps)<.001);
+ }
+});
+test('sparse sampling widens temporal uncertainty; one high point never passes the top',()=>{
+ const f=atCadence(10),r={sampleStart:f[5].now,top:f[25].now};
+ f[24].landmarks[9].y=f[24].landmarks[10].y=.001;
+ const answer=assessPullupTop(f,r,prior);assert.notEqual(answer.state,'above');
+ assert.ok(answer.mouth.temporalUncertaintyPixels>0);
+});
+test('extremely sparse or missing observations still abstain with an explicit reason',()=>{
+ const f=atCadence(5),r=assessPullupTop(f,{sampleStart:f[5].now,top:f[25].now},prior);
+ assert.equal(r.state,'unavailable');assert.equal(r.reasonCode,'low_frame_rate');assert.match(r.reason,/5 кадр\/с/);
+ const missing=atCadence(10);for(const f of missing)f.landmarks[9].visibility=0;
+ assert.equal(assessPullupTop(missing,{sampleStart:500,top:2500},prior).state,'unavailable');
+});
