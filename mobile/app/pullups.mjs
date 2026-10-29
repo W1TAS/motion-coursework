@@ -3,13 +3,15 @@ import {PullupPhaseEngine as PullupEngine} from './pullup-phases.mjs';
 import {pullupResultView} from './pullup-presentation.mjs';
 import {drawPoseFace} from './pose-face.mjs';
 import {CAMERA_NAMES,savedFacing,openCamera} from './camera.mjs';
+import {PullupTrace} from './pullup-trace.mjs';
 const $=id=>document.getElementById(id);
 const bones=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 let manifest=null,generation=0,epoch=0,onBack=null,abort=null,objectURL=null,videoBlob=null,pipeline=null;
 let mode='closed',engine=new PullupEngine(),frameHandle=null,watch=null,lastFrame=-1,lastAdvance=0,lastWatchTime=0,lastDecodedAt=0,lastDecodedTime=-1,processed=0,previousPoseTime=null;
 let classifier=null,modelDecisions=0,modelEpoch=0,classifierBroken=false;
-let source='archive',media=null,lastFormat=null,selectedFile=null;
+let source='archive',media=null,lastFormat=null,selectedFile=null,playbackSerial=0;
 let facing=savedFacing({getItem:()=>localStorage.getItem('motion-pullup-camera')});
+const trace=new PullupTrace();
 const video=()=>$('pullup-video');
 function sourceControls(){
  const live=source==='camera';$('pullups').dataset.source=source;
@@ -21,6 +23,7 @@ function sourceControls(){
 }
 function stopMedia(){media?.getTracks().forEach(t=>t.stop());media=null;video().srcObject=null;}
 function startClassifier(token,signal){
+ trace.lifecycle('classifier-start');
  classifierBroken=false;classifier=new Worker(new URL('./pullup-classifier-worker.mjs',import.meta.url),{type:'module'});
  const worker=classifier;
  return new Promise((resolve,reject)=>{
@@ -30,6 +33,7 @@ function startClassifier(token,signal){
   worker.onerror=()=>{clearTimeout(timeout);if(token!==generation)return;classifierBroken=true;worker.terminate();$('pullups').dataset.model='error';const rep=engine.completed.at(-1),ascent=engine.ascents.at(-1);if(rep)rep.model={error:'Модель остановилась. Выберите запись повторно.'};if(ascent)ascent.analysis={error:'Модель недоступна. Выберите запись повторно.'};render();reject(Error('Ошибка классификатора'));};
   worker.onmessage=({data})=>{
    if(token!==generation)return;
+   if(data.epoch===modelEpoch&&(data.type==='ascent-decision'||data.type==='decision'))trace.decision(data);
    if(data.type==='ready'){clearTimeout(timeout);$('pullups').dataset.model='ready';resolve();}
    else if(data.type==='ascent-decision'&&data.epoch===modelEpoch){const ascent=engine.ascents.find(r=>r.index===data.index);if(ascent){ascent.analysis=data.decision;render();}}
    else if(data.type==='decision'&&data.epoch===modelEpoch){const rep=engine.completed.find(r=>r.index===data.index);if(rep){rep.model=data.decision;modelDecisions++;$('pullups').dataset.modelDecisions=String(modelDecisions);render();window.dispatchEvent(new CustomEvent('motion:pullup-result',{detail:{rep,elapsedMs:data.elapsedMs}}));}}
@@ -70,15 +74,19 @@ function draw(points,width,height){
 function cancelFrames(){if(frameHandle!==null){if(video().cancelVideoFrameCallback)video().cancelVideoFrameCallback(frameHandle);else cancelAnimationFrame(frameHandle);}frameHandle=null;clearInterval(watch);watch=null;}
 function fail(title,text){if(mode==='closed'||mode==='loading')return;if(source==='camera')pauseArchive();cancelFrames();epoch++;video().pause();engine.pause();clearSkeleton();state('error');feedback(title,text);$('pullup-play').disabled=false;}
 export function pauseArchive(){
+ if(source!=='camera'&&mode==='priming'){
+  playbackSerial++;epoch++;pipeline?.close();pipeline=null;lastFrame=-1;video().pause();state('paused');$('pullup-play').disabled=false;
+  feedback('На паузе','Подготовка прервана. Нажмите «Продолжить», чтобы обработать текущий кадр.');return;
+ }
  if(source==='camera'&&(mode==='running'||mode==='loading')){
   closeArchive();engine.pause();state('paused');$('pullup-play').disabled=false;
   feedback('Камера на паузе','Камера выключена. После продолжения заново покажите нижнюю точку; счёт сохранён.');return;
  }
  if(mode!=='running')return;
- state('paused');epoch++;cancelFrames();video().pause();feedback('На паузе','Продолжение — с того же места. Счёт сохранён.');
+ state('paused');playbackSerial++;epoch++;cancelFrames();video().pause();feedback('На паузе','Продолжение — с того же места. Счёт сохранён.');
 }
 export function closeArchive(){
- generation++;epoch++;state('closed');classifier?.terminate();classifier=null;cancelFrames();abort?.abort();abort=null;pipeline?.close();pipeline=null;
+ generation++;epoch++;playbackSerial++;state('closed');classifier?.terminate();classifier=null;cancelFrames();abort?.abort();abort=null;pipeline?.close();pipeline=null;
  video().pause();stopMedia();video().removeAttribute('src');video().load();if(objectURL)URL.revokeObjectURL(objectURL);objectURL=null;videoBlob=null;lastFormat=null;
  video().classList.remove('mirror');$('pullup-overlay').classList.remove('mirror');clearSkeleton();
 }
@@ -94,8 +102,34 @@ async function loadBlob(signal,time=0){
  const old=objectURL;objectURL=URL.createObjectURL(videoBlob);
  const ready=loaded(signal);video().src=objectURL;video().load();if(old)URL.revokeObjectURL(old);await ready;
  if(signal.aborted)throw new DOMException('Загрузка отменена','AbortError');
- if(time>0)video().currentTime=Math.min(time,Math.max(0,video().duration-.1));
+ if(time>0)await seekVideo(Math.min(time,Math.max(0,video().duration-.1)),signal);
  $('pullup-camera').style.aspectRatio=`${video().videoWidth}/${video().videoHeight}`;$('pullup-seek').max=String(video().duration);
+}
+function seekVideo(time,signal){
+ const v=video();if(!v.seeking&&Math.abs(v.currentTime-time)<1e-6)return Promise.resolve();
+ return new Promise((resolve,reject)=>{
+  const done=error=>{clearTimeout(timer);v.removeEventListener('seeked',ready);v.removeEventListener('error',failed);signal?.removeEventListener('abort',cancel);error?reject(error):resolve();};
+  const ready=()=>done(),failed=()=>done(Error('Не удалось перейти к кадру')),cancel=()=>done(new DOMException('Переход отменён','AbortError'));
+  const timer=setTimeout(()=>done(Error('Не удалось дождаться выбранного кадра')),20000);
+  v.addEventListener('seeked',ready);v.addEventListener('error',failed);signal?.addEventListener('abort',cancel,{once:true});
+  if(signal?.aborted){cancel();return;}v.currentTime=time;
+ });
+}
+function acceptPose(data,token){
+ if(!data||token!==generation||data.epoch!==epoch)return;
+ processed++;$('pullups').dataset.frames=String(processed);
+ const format=`${data.width}/${data.height}`;
+ if(lastFormat&&format!==lastFormat){engine.pause();modelEpoch++;classifier?.postMessage({type:'reset'});}
+ lastFormat=format;
+ const before=engine.count,ascentsBefore=engine.ascents.length,r=engine.update(data.landmarks,data.sourceTime*1000,data.width,data.height);
+ const ascent=engine.ascents.length>ascentsBefore?engine.ascents.at(-1):null;
+ trace.frame(data,r.phase,ascent);
+ if(classifierBroken&&ascent)ascent.analysis={error:'Модель недоступна. Выберите запись повторно.'};
+ if(classifierBroken&&engine.count>before)engine.completed.at(-1).model={error:'Модель недоступна. Выберите запись повторно.'};
+ if(!classifierBroken)classifier?.postMessage({type:'observe',points:data.landmarks,worldLandmarks:data.worldLandmarks,time:data.sourceTime*1000,width:data.width,height:data.height,phase:r.phase,epoch:modelEpoch,ascent,rep:engine.count>before?engine.completed.at(-1):null});
+ draw(data.landmarks,data.width,data.height);render(r);
+ if(previousPoseTime!==null&&data.sourceTime>previousPoseTime)$('pullup-fps').textContent=`${Math.round(1/(data.sourceTime-previousPoseTime))} кадр/с`;
+ previousPoseTime=data.sourceTime;
 }
 function schedule(){
  if(mode!=='running'||frameHandle!==null)return;
@@ -105,21 +139,7 @@ function schedule(){
   if(decoded!==lastDecodedTime){lastDecodedTime=decoded;lastDecodedAt=performance.now();}
   if(video().seeking||video().readyState<2||decoded===lastFrame||pipeline?.busy)return;
   lastFrame=decoded;const token=generation,frameEpoch=epoch,time=source==='camera'?performance.now()/1000:decoded;
-  pipeline.frame(video(),time,frameEpoch).then(data=>{
-   if(!data||token!==generation||data.epoch!==epoch)return;
-   processed++;$('pullups').dataset.frames=String(processed);
-   const format=`${data.width}/${data.height}`;
-   if(lastFormat&&format!==lastFormat){engine.pause();modelEpoch++;classifier?.postMessage({type:'reset'});}
-   lastFormat=format;
-   const before=engine.count,ascentsBefore=engine.ascents.length,r=engine.update(data.landmarks,data.sourceTime*1000,data.width,data.height);
-   const ascent=engine.ascents.length>ascentsBefore?engine.ascents.at(-1):null;
-   if(classifierBroken&&ascent)ascent.analysis={error:'Модель недоступна. Выберите запись повторно.'};
-   if(classifierBroken&&engine.count>before)engine.completed.at(-1).model={error:'Модель недоступна. Выберите запись повторно.'};
-   if(!classifierBroken)classifier?.postMessage({type:'observe',points:data.landmarks,worldLandmarks:data.worldLandmarks,time:data.sourceTime*1000,width:data.width,height:data.height,phase:r.phase,epoch:modelEpoch,ascent,rep:engine.count>before?engine.completed.at(-1):null});
-   draw(data.landmarks,data.width,data.height);render(r);
-   if(previousPoseTime!==null&&data.sourceTime>previousPoseTime)$('pullup-fps').textContent=`${Math.round(1/(data.sourceTime-previousPoseTime))} кадр/с`;
-   previousPoseTime=data.sourceTime;
-  }).catch(e=>{if(token===generation&&frameEpoch===epoch&&e.name!=='AbortError')fail('Анализ остановился',e.message);});
+  pipeline.frame(video(),time,frameEpoch).then(data=>acceptPose(data,token)).catch(e=>{if(token===generation&&frameEpoch===epoch&&e.name!=='AbortError')fail('Анализ остановился',e.message);});
  };
  frameHandle=video().requestVideoFrameCallback?video().requestVideoFrameCallback(callback):requestAnimationFrame(callback);
 }
@@ -136,7 +156,7 @@ function monitor(){
   }else if(!v.ended&&lag>2000){clearSkeleton();feedback('Ожидание кадра видео','Счётчик не добавляет повторения без новых кадров.');}
  },500);
 }
-function resetAnalysis(){epoch++;modelEpoch++;classifier?.postMessage({type:'reset'});modelDecisions=0;$('pullups').dataset.modelDecisions='0';engine.reset();processed=0;previousPoseTime=null;lastFrame=-1;lastFormat=null;$('pullups').dataset.frames='0';$('pullup-fps').textContent='';clearSkeleton();render();}
+function resetAnalysis(){trace.reset({source,sample:$('pullup-select').value});epoch++;modelEpoch++;classifier?.postMessage({type:'reset'});if(source!=='camera'){pipeline?.close();pipeline=null;}modelDecisions=0;$('pullups').dataset.modelDecisions='0';engine.reset();processed=0;previousPoseTime=null;lastFrame=-1;lastFormat=null;$('pullups').dataset.frames='0';$('pullup-fps').textContent='';clearSkeleton();render();}
 async function prepareRecording(kind,readVideo){
  closeArchive();source=kind;sourceControls();$('pullup-badge').textContent=kind==='file'?'ВИДЕО С УСТРОЙСТВА':'АНАЛИЗ ПРИМЕРА';state('loading');const token=generation;abort=new AbortController();const signal=abort.signal;
  $('pullup-play').disabled=true;$('pullup-restart').disabled=true;$('pullup-seek').disabled=true;resetAnalysis();feedback('Подготовка записи','Открываю видео и запускаю распознавание…');
@@ -221,18 +241,40 @@ async function startLiveCamera(){
 }
 async function play(){
  if(mode==='running'){pauseArchive();return;}
- if(mode==='loading'||mode==='closed')return;
+ if(mode==='loading'||mode==='priming'||mode==='closed')return;
  if(source==='camera'){await startLiveCamera();return;}
- if(!pipeline||!videoBlob){await retryRecording();return;}
- const token=generation;
+ if(!videoBlob){await retryRecording();return;}
+ const token=generation,playToken=++playbackSerial,current=()=>token===generation&&playToken===playbackSerial;
  try{
-  if(mode==='error'||mode==='stalled'){
-   const time=video().currentTime;state('loading');$('pullup-play').disabled=true;epoch++;engine.pause();lastFrame=-1;
-   pipeline.close();pipeline=new PoseStream();await Promise.all([pipeline.start(),loadBlob(abort.signal,time)]);if(token!==generation)return;
+  const replay=video().ended||mode==='ended',recover=mode==='error'||mode==='stalled';
+  video().pause();state('priming');$('pullup-play').disabled=true;feedback('Подготовка первого кадра','Видео начнётся после обработки текущего кадра.');
+  if(replay){resetAnalysis();await seekVideo(0,abort.signal);}
+  if(recover){
+   const time=video().currentTime;epoch++;engine.pause();lastFrame=-1;
+   pipeline?.close();pipeline=null;await loadBlob(abort.signal,time);
   }
-  if(video().ended||mode==='ended'){resetAnalysis();video().currentTime=0;}
-  state('running');$('pullup-play').disabled=false;feedback('Разбор идёт','Ожидаю первые пригодные кадры');await video().play();if(token!==generation||mode!=='running')return;schedule();monitor();
- }catch(e){if(token===generation&&mode!=='paused'){state('error');fail('Не удалось продолжить запись',e.message);}}
+  if(!current()||mode!=='priming')return;
+  if(!pipeline){pipeline=new PoseStream();trace.lifecycle('pose-start');await pipeline.start();}
+  if(!current()||mode!=='priming')return;
+  // The first inference can take hundreds of milliseconds. Keep this real
+  // frame paused until it is analysed, instead of dropping the beginning.
+  if(lastFrame<0){
+   trace.lifecycle('prime-frame');const time=video().currentTime,data=await pipeline.frame(video(),time,epoch);
+   if(!current()||mode!=='priming')return;
+   acceptPose(data,token);lastFrame=time;
+  }
+  if(!current()||mode!=='priming')return;
+  state('running');$('pullup-play').disabled=false;feedback('Разбор идёт','Ожидаю первые пригодные кадры');await video().play();if(!current()||mode!=='running')return;schedule();monitor();
+ }catch(e){if(current()&&e.name!=='AbortError'&&mode!=='paused'){state('error');fail('Не удалось продолжить запись',e.message);}}
+}
+async function seekRecording(time){
+ if(source==='camera'||!videoBlob)return;
+ const token=generation;playbackSerial++;pauseArchive();resetAnalysis();const seekEpoch=epoch;state('loading');$('pullup-play').disabled=true;$('pullup-restart').disabled=true;
+ try{
+  await seekVideo(time,abort.signal);if(token!==generation||seekEpoch!==epoch)return;
+  state('paused');$('pullup-play').disabled=false;$('pullup-restart').disabled=false;
+  feedback('Разбор с выбранного места','Счёт сброшен. Нажмите «Продолжить»: обработка начнётся с выбранного кадра.');timeline();
+ }catch(e){if(token===generation&&seekEpoch===epoch&&e.name!=='AbortError'){state('error');fail('Не удалось перейти к кадру',e.message);}}
 }
 $('pullup-select').onchange=e=>choose(e.target.value);
 $('pullup-source-archive').onclick=()=>selectSource('archive');
@@ -248,9 +290,10 @@ for(const button of document.querySelectorAll('[data-pullup-facing]'))button.onc
 };
 $('pullup-back').onclick=()=>{closeArchive();selectedFile=null;$('pullup-file').value='';$('pullups').hidden=true;document.body.classList.remove('workout-open');onBack?.();};
 $('pullup-play').onclick=play;
-$('pullup-restart').onclick=()=>{if(source==='camera'){pauseArchive();resetAnalysis();state('paused');feedback('Счёт сброшен','Нажмите «Продолжить» и заново покажите нижнюю точку.');return;}if(mode==='error'||mode==='stalled'){retryRecording();return;}pauseArchive();resetAnalysis();video().currentTime=0;state('paused');feedback('Счёт сброшен','Нажмите «Продолжить», чтобы разобрать запись с начала.');timeline();};
-$('pullup-seek').onchange=e=>{const time=Number(e.target.value);resetAnalysis();video().currentTime=time;if(mode==='ended')state('paused');feedback('Разбор с выбранного места','Счёт начинается с нуля после определения нижней точки.');timeline();};
+$('pullup-restart').onclick=()=>{if(source==='camera'){pauseArchive();resetAnalysis();state('paused');feedback('Счёт сброшен','Нажмите «Продолжить» и заново покажите нижнюю точку.');return;}if(mode==='error'||mode==='stalled')return retryRecording();return seekRecording(0);};
+$('pullup-seek').onchange=e=>seekRecording(Number(e.target.value));
 video().addEventListener('timeupdate',timeline);
 video().addEventListener('seeked',()=>{lastFrame=-1;if(mode==='running')schedule();});
 video().addEventListener('ended',()=>{if(source==='camera')return;cancelFrames();state('ended');timeline();feedback('Запись завершена','Показан результат обработанных кадров. Можно запустить разбор заново.');});
 video().addEventListener('error',()=>{if(mode!=='loading'&&mode!=='closed')fail('Ошибка воспроизведения','Запись не удалось прочитать до конца. Можно повторить запуск.');});
+trace.mount(document.querySelector('.archive-disclosure'));

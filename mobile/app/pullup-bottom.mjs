@@ -23,8 +23,11 @@ export function measureInitialBottom(frames,timeMs){
  if(!covered||image.length<3||image.length/local.length<.8)return {state:'unavailable',reason:'Недостаточно точек в начале подъёма'};
  const valid=local.filter(f=>{const m=measurePullup(f.landmarks,f.width,f.height);return m.valid&&m.arms===2;});
  const torso=median(image.map(m=>m.torso));
- const wrists=[15,16].map(i=>{
-  const points=valid.map(f=>({x:f.landmarks[i].x*f.width/f.height,y:f.landmarks[i].y}));
+ // Stability of the support points must not confuse a label swap with motion.
+ // Leave anatomical landmarks and the per-frame arm angles unchanged.
+ const hands=valid.map(f=>[15,16].map(i=>({x:f.landmarks[i].x*f.width/f.height,y:f.landmarks[i].y})).sort((a,b)=>a.x-b.x));
+ const wrists=[0,1].map(side=>{
+  const points=hands.map(pair=>pair[side]);
   const x=median(points.map(p=>p.x)),y=median(points.map(p=>p.y));
   return Math.max(...points.map(p=>Math.hypot(p.x-x,p.y-y)))/torso;
  });

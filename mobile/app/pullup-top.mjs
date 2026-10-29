@@ -1,7 +1,7 @@
 // Experimental geometry; peak timing adapts to the actual processed cadence.
 import {visibleFacePoints} from './pose-face.mjs';
 // Research geometry: wrist reference versus nose/mouth. Neither point is a chin.
-export const TOP_PROXY_PROTOCOL=Object.freeze({version:'wrist-face-proxy-v1',visibility:.45,
+export const TOP_PROXY_PROTOCOL=Object.freeze({version:'wrist-face-proxy-image-ordered-v2',visibility:.45,
  referenceBeforeMs:200,referenceAfterMs:200,topBeforeMs:200,minFrames:3,minCoverage:.8,
  maxReferenceJitterTorso:.12,maxWristDriftTorso:.25,nearLineTorso:.04,minPixelTolerance:2});
 const q=(a,p)=>{const s=a.slice().sort((x,y)=>x-y),k=(s.length-1)*p;return s[Math.floor(k)]+(s[Math.ceil(k)]-s[Math.floor(k)])*(k%1);};
@@ -21,7 +21,9 @@ function body(f){
  if(!p||![11,12,15,16,23,24].every(i=>valid(p[i])))return null;
  const shoulder=pixel({x:(p[11].x+p[12].x)/2,y:(p[11].y+p[12].y)/2},f);
  const hip=pixel({x:(p[23].x+p[24].x)/2,y:(p[23].y+p[24].y)/2},f);
- const torso=distance(shoulder,hip),left=pixel(p[15],f),right=pixel(p[16],f);
+ // This is an unoriented support line, not anatomical hand identity. Pose can
+ // swap left/right labels; compare the two image-side endpoints consistently.
+ const torso=distance(shoulder,hip),[left,right]=[pixel(p[15],f),pixel(p[16],f)].sort((a,b)=>a.x-b.x);
  if(torso<f.height*.03||hip.y<=shoulder.y||distance(left,right)<torso*.5)return null;
  return {left,right,torso};
 }

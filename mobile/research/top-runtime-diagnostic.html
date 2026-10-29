@@ -1,0 +1,8 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Проверка повторяемости подтягиваний</title>
+<style>body{font:15px/1.5 system-ui;max-width:1100px;margin:20px auto;padding:0 12px}button,select{font:inherit;padding:10px;margin:5px}video{width:480px;max-height:350px;background:#171a1c}pre{white-space:pre-wrap}td,th{border:1px solid #bbb;padding:6px}table{border-collapse:collapse}</style>
+<h1>Проверка повторяемости</h1><p>Локальная диагностика потока. Правила и веса не подбираются.</p>
+<select id="sample" aria-label="Видеопример"></select>
+<button id="live">5 запусков потока 0.1.14</button><button id="fixed">Одинаковые кадры, разные часы</button>
+<video id="video" muted playsinline></video><p id="status">Подготовка</p>
+<table><thead><tr><th>Запуск</th><th>Кадров</th><th>Начало / верх, мс</th><th>Высота</th><th>Зазор / допуск, px</th></tr></thead><tbody id="rows"></tbody></table>
+<pre id="summary"></pre><script type="module" src="/diagnostic.mjs"></script></html>

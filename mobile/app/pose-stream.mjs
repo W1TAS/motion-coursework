@@ -15,12 +15,17 @@ export class PoseStream {
   this.busy=true;const serial=this.serial;
   try{
    const width=video.videoWidth,height=video.videoHeight;
+   // MediaPipe's temporal filters must see the captured stream's clock, not
+   // CPU scheduling time. A replay/seek needs a fresh session, never fake +1 ms.
+   const now=sourceTime*1000;
+   if(!Number.isFinite(now)||now<0)throw Error('Некорректное время кадра');
+   if(now<=this.lastStamp)return null;
    const bitmap=await createImageBitmap(video);
    if(serial!==this.serial){bitmap.close();return null;}
-   const now=this.lastStamp=Math.max(this.lastStamp+1,performance.now());
+   this.lastStamp=now;
    const result=await this.call({type:'frame',bitmap,now,width,height},[bitmap]);
    return serial===this.serial?{...result,sourceTime,epoch}:null;
   }finally{if(serial===this.serial)this.busy=false;}
  }
- close(){this.serial++;this.reject(new DOMException('Анализ закрыт','AbortError'));this.worker?.terminate();this.worker=null;this.ready=null;this.busy=false;}
+ close(){this.serial++;this.reject(new DOMException('Анализ закрыт','AbortError'));this.worker?.terminate();this.worker=null;this.ready=null;this.busy=false;this.lastStamp=-1;}
 }

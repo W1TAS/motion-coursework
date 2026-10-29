@@ -58,6 +58,13 @@ test('initial measurement requires both arms, temporal context and stable wrists
  const jump=structuredClone(frames);jump[2].landmarks[15].x+=.12;
  assert.equal(measureInitialBottom(jump,1000).state,'unavailable');
 });
+test('a consistent full-body left/right label swap is not mistaken for unstable support points',()=>{
+ const original=[920,960,1000,1040,1080].map(t=>frame(t,165)),swapped=structuredClone(original);
+ for(let k=0;k<swapped.length;k+=2)for(const [a,b]of [[11,12],[13,14],[15,16],[23,24]])for(const name of ['landmarks','worldLandmarks']){
+  const p=swapped[k][name];[p[a],p[b]]=[p[b],p[a]];
+ }
+ assert.deepEqual(measureInitialBottom(swapped,1000),measureInitialBottom(original,1000));
+});
 test('lost onset is not replaced by a later extended arm or by a previous tracking segment',()=>{
  const frames=[];for(let t=700;t<=1400;t+=40)frames.push(frame(t,165));
  const rep={sampleStart:1200,start:1400,top:2000,bottomReference:{state:'unavailable',origin:'settled',interruption:'tracking_gap'}};

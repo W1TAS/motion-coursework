@@ -31,6 +31,14 @@ test('one hallucinated high face and an unstable initial wrist reference cannot 
  for(let i=0;i<11;i++)if(i%2)f[i].landmarks[15].y+=.2;
  assert.equal(assessPullupTop(f,rep,prior).state,'unavailable');
 });
+test('anatomical left/right swaps do not move the unordered wrist support line',()=>{
+ const original=frames(.05),swapped=structuredClone(original);
+ for(let i=0;i<swapped.length;i+=2){const p=swapped[i].landmarks;[p[15],p[16]]=[p[16],p[15]];}
+ assert.deepEqual(assessPullupTop(swapped,rep,prior),assessPullupTop(original,rep,prior));
+ // A real moving support still fails, even when names also swap.
+ for(let i=0;i<11;i++)if(i%2){const p=swapped[i].landmarks;p.find((p,j)=>[15,16].includes(j)&&p.x<.5).y+=.2;}
+ assert.equal(assessPullupTop(swapped,rep,prior).state,'unavailable');
+});
 function atCadence(fps,y=.35){return frames(y).map((f,i)=>({...f,now:i*1000/fps}));}
 test('10–20 processed fps can provide three real observations without a held apex',()=>{
  for(const fps of [20,15,12,10,9])for(const [y,state]of [[.35,'below'],[.05,'above']]){
