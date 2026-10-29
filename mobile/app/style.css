@@ -22,3 +22,5 @@ dialog{border:1px solid var(--line);border-radius:10px;background:var(--surface)
 #pullup-status{margin-bottom:8px}#pullup-results p:first-child{font-weight:600}#pullup-results{border-top:1px solid var(--line);padding-top:6px}#pullup-results:empty{display:none}.archive-controls .controls .primary{width:auto}
 
 .model-title{display:block;font-size:13px;border-top:1px solid var(--line);margin-top:10px;padding-top:8px}#pullup-results [data-model-state=flagged]{color:#895614}#pullup-results [data-model-state=unavailable]{color:var(--muted)}
+
+#pullup-face-status{margin:4px 0 8px;color:#35677c;font-size:12px}

@@ -1,6 +1,7 @@
 import {PoseStream} from './pose-stream.mjs';
 import {PullupPhaseEngine as PullupEngine} from './pullup-phases.mjs';
 import {pullupResultView} from './pullup-presentation.mjs';
+import {drawPoseFace} from './pose-face.mjs';
 const $=id=>document.getElementById(id);
 const bones=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 let manifest=null,generation=0,epoch=0,onBack=null,abort=null,objectURL=null,videoBlob=null,pipeline=null;
@@ -27,7 +28,8 @@ function startClassifier(token,signal){
 function state(next){mode=next;$('pullups').dataset.mode=next;$('pullup-play').textContent=next==='running'?'Пауза':next==='ended'?'Ещё раз':next==='stalled'||next==='error'?'Повторить запуск':next==='paused'?'Продолжить':'Начать разбор';}
 function feedback(title,text){$('pullup-rep-title').textContent=title;$('pullup-status').textContent=text;}
 function timeline(){const v=video();$('pullup-time').textContent=`${v.currentTime.toFixed(1)} / ${Number.isFinite(v.duration)?v.duration.toFixed(1):'—'} с`;$('pullup-seek').value=String(v.currentTime);}
-function clearSkeleton(){const c=$('pullup-overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);}
+function faceStatus(count){$('pullups').dataset.facePoints=String(count);$('pullup-face-status').textContent=count?`Точки лица: ${count} из 11 · голубой цвет`:'Точки лица: нет уверенных точек';}
+function clearSkeleton(){const c=$('pullup-overlay');c.getContext('2d').clearRect(0,0,c.width,c.height);faceStatus(0);}
 function render(result){
  $('pullup-count').textContent=String(engine.ascents.length);$('pullups').dataset.completed=String(engine.count);
  $('pullups').dataset.ascents=String(engine.ascents.length);
@@ -45,9 +47,10 @@ function render(result){
 }
 function draw(points,width,height){
  const canvas=$('pullup-overlay');if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
- const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);if(!points)return;
+ const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);if(!points){faceStatus(0);return;}
  ctx.strokeStyle='#e5df82';ctx.lineWidth=Math.max(2,width/180);
  for(const [a,b]of bones){const x=points[a],y=points[b];if(!x||!y||Math.min(x.visibility??0,y.visibility??0)<.45||![x.x,x.y,y.x,y.y].every(Number.isFinite))continue;ctx.beginPath();ctx.moveTo(x.x*width,x.y*height);ctx.lineTo(y.x*width,y.y*height);ctx.stroke();}
+ faceStatus(drawPoseFace(ctx,points,width,height));
 }
 function cancelFrames(){if(frameHandle!==null){if(video().cancelVideoFrameCallback)video().cancelVideoFrameCallback(frameHandle);else cancelAnimationFrame(frameHandle);}frameHandle=null;clearInterval(watch);watch=null;}
 function fail(title,text){if(mode==='closed'||mode==='loading')return;cancelFrames();epoch++;video().pause();engine.pause();clearSkeleton();state('error');feedback(title,text);$('pullup-play').disabled=false;}
@@ -130,7 +133,7 @@ export async function openArchive(back){
  onBack=back;$('pullups').hidden=false;document.body.classList.add('workout-open');
  const token=++generation;
  try{
-  if(!manifest){const r=await fetch(new URL('./samples/pullups/manifest.json',import.meta.url));if(!r.ok)throw Error('Не удалось загрузить список записей');manifest=await r.json();}
+  if(!manifest){const r=await fetch(new URL('./samples/pullups/manifest.json',import.meta.url),{cache:'no-store'});if(!r.ok)throw Error('Не удалось загрузить список записей');manifest=await r.json();}
   if(token!==generation)return;
   $('pullup-select').replaceChildren();for(const item of manifest){const option=document.createElement('option');option.value=item.id;option.textContent=`${item.title} · ${item.duration} с`;$('pullup-select').append(option);}
   await choose(manifest[0].id);
