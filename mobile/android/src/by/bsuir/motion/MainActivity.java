@@ -2,6 +2,8 @@ package by.bsuir.motion;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -15,6 +17,8 @@ public class MainActivity extends Activity {
     private static final String HOST="appassets.androidplatform.net";
     private WebView web;
     private PermissionRequest cameraRequest;
+    private ValueCallback<Uri[]> videoFileRequest;
+    private static final int PICK_VIDEO=12;
     private boolean foreground;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -24,7 +28,7 @@ public class MainActivity extends Activity {
         WebSettings s=web.getSettings();
         s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
-        s.setAllowFileAccess(false);s.setAllowContentAccess(false);
+        s.setAllowFileAccess(false);s.setAllowContentAccess(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest r){
@@ -66,6 +70,18 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient(){
+            @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){
+                if(!foreground||view.getUrl()==null||!isLocal(Uri.parse(view.getUrl())))return false;
+                if(videoFileRequest!=null)videoFileRequest.onReceiveValue(null);
+                videoFileRequest=callback;
+                // A user-selected document grant; no broad photo/storage permission.
+                Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                pick.addCategory(Intent.CATEGORY_OPENABLE);
+                pick.setType("video/*");pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                try{startActivityForResult(pick,PICK_VIDEO);}
+                catch(ActivityNotFoundException e){videoFileRequest=null;callback.onReceiveValue(null);}
+                return true;
+            }
             @Override public void onPermissionRequest(PermissionRequest request){
                 runOnUiThread(()->{
                     if(!foreground||!isLocal(request.getOrigin())||!Arrays.asList(request.getResources()).contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)){request.deny();return;}
@@ -87,8 +103,16 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(code,permissions,grants);
         if(code==11&&cameraRequest!=null){if(foreground&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)cameraRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});else cameraRequest.deny();cameraRequest=null;}
     }
+    @Override protected void onActivityResult(int code,int result,Intent data){
+        super.onActivityResult(code,result,data);
+        if(code==PICK_VIDEO&&videoFileRequest!=null){
+            ValueCallback<Uri[]> callback=videoFileRequest;videoFileRequest=null;
+            Uri uri=result==RESULT_OK&&data!=null?data.getData():null;
+            callback.onReceiveValue(uri!=null&&"content".equals(uri.getScheme())?new Uri[]{uri}:null);
+        }
+    }
     @Override protected void onResume(){super.onResume();foreground=true;if(web!=null)web.onResume();}
     @Override protected void onPause(){foreground=false;if(cameraRequest!=null){cameraRequest.deny();cameraRequest=null;}if(web!=null){web.evaluateJavascript("window.MotionApp&&window.MotionApp.suspend()",null);web.onPause();}super.onPause();}
     @Override public void onBackPressed(){web.evaluateJavascript("(()=>{const help=document.getElementById('help-dialog');if(help&&help.open){help.close();return true;}if(!document.getElementById('pullups').hidden){document.getElementById('pullup-back').click();return true;}if(document.getElementById('workout').hidden)return false;document.getElementById('back').click();return true;})()",result->{if("false".equals(result))MainActivity.super.onBackPressed();});}
-    @Override protected void onDestroy(){if(web!=null){web.destroy();web=null;}super.onDestroy();}
+    @Override protected void onDestroy(){if(videoFileRequest!=null){videoFileRequest.onReceiveValue(null);videoFileRequest=null;}if(web!=null){web.destroy();web=null;}super.onDestroy();}
 }

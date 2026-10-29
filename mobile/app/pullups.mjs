@@ -8,14 +8,14 @@ const bones=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23
 let manifest=null,generation=0,epoch=0,onBack=null,abort=null,objectURL=null,videoBlob=null,pipeline=null;
 let mode='closed',engine=new PullupEngine(),frameHandle=null,watch=null,lastFrame=-1,lastAdvance=0,lastWatchTime=0,lastDecodedAt=0,lastDecodedTime=-1,processed=0,previousPoseTime=null;
 let classifier=null,modelDecisions=0,modelEpoch=0,classifierBroken=false;
-let source='archive',media=null,lastFormat=null;
+let source='archive',media=null,lastFormat=null,selectedFile=null;
 let facing=savedFacing({getItem:()=>localStorage.getItem('motion-pullup-camera')});
 const video=()=>$('pullup-video');
 function sourceControls(){
  const live=source==='camera';$('pullups').dataset.source=source;
- $('pullup-source-camera').setAttribute('aria-pressed',String(live));$('pullup-source-archive').setAttribute('aria-pressed',String(!live));
- $('pullup-camera-options').hidden=!live;$('pullup-recording-options').hidden=live;$('pullup-timeline').hidden=live;
- $('pullup-source-label').textContent=live?'Поток с камеры':'Поток из записи';
+ for(const name of ['archive','file','camera'])$('pullup-source-'+name).setAttribute('aria-pressed',String(source===name));
+ $('pullup-camera-options').hidden=!live;$('pullup-recording-options').hidden=source!=='archive';$('pullup-file-options').hidden=source!=='file';$('pullup-timeline').hidden=live;
+ $('pullup-source-label').textContent=live?'Поток с камеры':source==='file'?'Видео с устройства':'Встроенные примеры';
  $('pullup-restart').textContent=live?'Сбросить':'Сначала';
  for(const b of document.querySelectorAll('[data-pullup-facing]'))b.setAttribute('aria-pressed',String(b.dataset.pullupFacing===facing));
 }
@@ -137,39 +137,62 @@ function monitor(){
  },500);
 }
 function resetAnalysis(){epoch++;modelEpoch++;classifier?.postMessage({type:'reset'});modelDecisions=0;$('pullups').dataset.modelDecisions='0';engine.reset();processed=0;previousPoseTime=null;lastFrame=-1;lastFormat=null;$('pullups').dataset.frames='0';$('pullup-fps').textContent='';clearSkeleton();render();}
-async function choose(id){
- closeArchive();source='archive';sourceControls();$('pullup-badge').textContent='АНАЛИЗ ЗАПИСИ';state('loading');const token=generation;abort=new AbortController();const signal=abort.signal;
- $('pullup-play').disabled=true;$('pullup-restart').disabled=true;$('pullup-seek').disabled=true;resetAnalysis();feedback('Подготовка записи','Загружаю видео целиком и запускаю модель…');
- const item=manifest.find(v=>v.id===id);if(!item)return;
+async function prepareRecording(kind,readVideo){
+ closeArchive();source=kind;sourceControls();$('pullup-badge').textContent=kind==='file'?'ВИДЕО С УСТРОЙСТВА':'АНАЛИЗ ПРИМЕРА';state('loading');const token=generation;abort=new AbortController();const signal=abort.signal;
+ $('pullup-play').disabled=true;$('pullup-restart').disabled=true;$('pullup-seek').disabled=true;resetAnalysis();feedback('Подготовка записи','Открываю видео и запускаю распознавание…');
+ $('pullup-time').textContent='0 с';$('pullup-seek').value='0';$('pullup-seek').max='1';
  try{
   pipeline=new PoseStream();
   const modelReady=pipeline.start();$('pullups').dataset.model='loading';const classifierReady=startClassifier(token,signal);
   // Blob playback avoids APK byte-range streaming and works without a network server.
   await Promise.all([modelReady,classifierReady,(async()=>{
-   const response=await fetch(new URL(`./samples/pullups/${item.video}`,import.meta.url),{signal});if(!response.ok)throw Error('Не удалось прочитать видео');
-   const blob=await response.blob();if(signal.aborted)return;videoBlob=blob;await loadBlob(signal);
+   const blob=await readVideo(signal);if(signal.aborted)return;videoBlob=blob;await loadBlob(signal);
   })()]);
   if(token!==generation)return;
-  state('ready');$('pullup-play').disabled=false;$('pullup-restart').disabled=false;$('pullup-seek').disabled=false;timeline();feedback('Готово к разбору','Нажмите «Начать разбор». Точки и повторения будут вычисляться по кадрам.');
- }catch(e){if(token!==generation)return;abort.abort();pipeline?.close();pipeline=null;state('error');feedback('Не удалось подготовить запись',e.message);$('pullup-play').disabled=false;}
+  state('ready');$('pullup-play').disabled=false;$('pullup-restart').disabled=false;$('pullup-seek').disabled=false;timeline();feedback('Готово к разбору',kind==='file'?'Видео остаётся на устройстве. Нажмите «Начать разбор»: обработка идёт как для камеры.':'Нажмите «Начать разбор». Точки и повторения будут вычисляться по кадрам.');
+ }catch(e){if(token!==generation)return;abort.abort();pipeline?.close();pipeline=null;state('error');feedback('Не удалось подготовить запись',e.message+' Для видео с телефона попробуйте MP4 с кодеком H.264.');$('pullup-play').disabled=false;}
+}
+async function choose(id){
+ const item=manifest?.find(v=>v.id===id);if(!item)return;
+ await prepareRecording('archive',async signal=>{
+  const response=await fetch(new URL(`./samples/pullups/${item.video}`,import.meta.url),{signal});if(!response.ok)throw Error('Не удалось прочитать видео');
+  return response.blob();
+ });
+}
+async function chooseFile(file){
+ if(!file)return; // Cancelling the picker leaves the current video and results intact.
+ if(!file.size||!(file.type.startsWith('video/')||/\.(mp4|m4v|mov|webm|mkv|3gp|avi)$/i.test(file.name))){
+  feedback('Выберите видео','Этот файл не похож на видеозапись. Попробуйте MP4, MOV или WebM.');return;
+ }
+ selectedFile=file;$('pullup-file-name').textContent=file.name;$('pullup-file-name').title=file.name;
+ // File is already a Blob: do not copy a large recording into an ArrayBuffer or upload it.
+ await prepareRecording('file',()=>file);
+}
+function retryRecording(){return source==='file'?chooseFile(selectedFile):choose($('pullup-select').value);}
+function pickFile(){
+ if(source!=='file')selectSource('file');
+ $('pullup-file').value='';$('pullup-file').click();
 }
 export async function openArchive(back){
- onBack=back;source='archive';sourceControls();state('loading');$('pullups').hidden=false;document.body.classList.add('workout-open');
+ onBack=back;selectedFile=null;$('pullup-file-name').textContent='Из памяти телефона';source='archive';sourceControls();state('loading');$('pullups').hidden=false;document.body.classList.add('workout-open');
  const token=++generation;
  try{
   if(!manifest){const r=await fetch(new URL('./samples/pullups/manifest.json',import.meta.url),{cache:'no-store'});if(!r.ok)throw Error('Не удалось загрузить список записей');manifest=await r.json();}
   if(token!==generation)return;
   $('pullup-select').replaceChildren();for(const item of manifest){const option=document.createElement('option');option.value=item.id;option.textContent=`${item.title} · ${item.duration} с`;$('pullup-select').append(option);}
-  await choose(manifest[0].id);
- }catch(e){if(token===generation){state('error');feedback('Не удалось открыть записи',e.message+' Можно перейти на вкладку «Камера».');}}
+  if(manifest.length)await choose(manifest[0].id);
+  else throw Error('Встроенные примеры не установлены.');
+ }catch(e){if(token===generation){state('error');feedback('Не удалось открыть примеры',e.message+' Можно выбрать «Файл» или «Камера».');}}
 }
 async function selectSource(next,force=false){
  if(next===source&&!force)return;
  if(next==='archive'&&manifest?.length){await choose($('pullup-select').value||manifest[0].id);return;}
+ if(next==='file'&&selectedFile){await chooseFile(selectedFile);return;}
  closeArchive();source=next;sourceControls();resetAnalysis();state('ready');
  $('pullup-play').disabled=next!=='camera';$('pullup-restart').disabled=true;$('pullup-seek').disabled=true;
- $('pullup-badge').textContent='КАМЕРА ВЫКЛЮЧЕНА';
- feedback('Подтягивания с камеры','Поставьте телефон неподвижно спереди. Начните с нижней точки и нажмите «Включить камеру».');
+ $('pullup-badge').textContent=next==='camera'?'КАМЕРА ВЫКЛЮЧЕНА':'ВЫБЕРИТЕ ВИДЕО';
+ if(next==='camera')feedback('Подтягивания с камеры','Поставьте телефон неподвижно спереди. Начните с нижней точки и нажмите «Включить камеру».');
+ else feedback('Видео с устройства','Нажмите «Выбрать видео». Файл обрабатывается здесь и никуда не отправляется.');
 }
 async function startLiveCamera(){
  closeArchive();source='camera';sourceControls();state('loading');if(engine.lastTime!==null)engine.pause();
@@ -200,7 +223,7 @@ async function play(){
  if(mode==='running'){pauseArchive();return;}
  if(mode==='loading'||mode==='closed')return;
  if(source==='camera'){await startLiveCamera();return;}
- if(!pipeline||!videoBlob){await choose($('pullup-select').value);return;}
+ if(!pipeline||!videoBlob){await retryRecording();return;}
  const token=generation;
  try{
   if(mode==='error'||mode==='stalled'){
@@ -213,6 +236,9 @@ async function play(){
 }
 $('pullup-select').onchange=e=>choose(e.target.value);
 $('pullup-source-archive').onclick=()=>selectSource('archive');
+$('pullup-source-file').onclick=pickFile;
+$('pullup-file-choose').onclick=pickFile;
+$('pullup-file').onchange=e=>chooseFile(e.target.files?.[0]);
 $('pullup-source-camera').onclick=()=>selectSource('camera');
 $('pullup-top-enabled').onchange=()=>render();
 for(const button of document.querySelectorAll('[data-pullup-facing]'))button.onclick=async()=>{
@@ -220,9 +246,9 @@ for(const button of document.querySelectorAll('[data-pullup-facing]'))button.onc
  const restart=mode==='running'||mode==='loading';facing=next;try{localStorage.setItem('motion-pullup-camera',facing);}catch{}
  await selectSource('camera',true);if(restart)await startLiveCamera();
 };
-$('pullup-back').onclick=()=>{closeArchive();$('pullups').hidden=true;document.body.classList.remove('workout-open');onBack?.();};
+$('pullup-back').onclick=()=>{closeArchive();selectedFile=null;$('pullup-file').value='';$('pullups').hidden=true;document.body.classList.remove('workout-open');onBack?.();};
 $('pullup-play').onclick=play;
-$('pullup-restart').onclick=()=>{if(source==='camera'){pauseArchive();resetAnalysis();state('paused');feedback('Счёт сброшен','Нажмите «Продолжить» и заново покажите нижнюю точку.');return;}if(mode==='error'||mode==='stalled'){choose($('pullup-select').value);return;}pauseArchive();resetAnalysis();video().currentTime=0;state('paused');feedback('Счёт сброшен','Нажмите «Продолжить», чтобы разобрать запись с начала.');timeline();};
+$('pullup-restart').onclick=()=>{if(source==='camera'){pauseArchive();resetAnalysis();state('paused');feedback('Счёт сброшен','Нажмите «Продолжить» и заново покажите нижнюю точку.');return;}if(mode==='error'||mode==='stalled'){retryRecording();return;}pauseArchive();resetAnalysis();video().currentTime=0;state('paused');feedback('Счёт сброшен','Нажмите «Продолжить», чтобы разобрать запись с начала.');timeline();};
 $('pullup-seek').onchange=e=>{const time=Number(e.target.value);resetAnalysis();video().currentTime=time;if(mode==='ended')state('paused');feedback('Разбор с выбранного места','Счёт начинается с нуля после определения нижней точки.');timeline();};
 video().addEventListener('timeupdate',timeline);
 video().addEventListener('seeked',()=>{lastFrame=-1;if(mode==='running')schedule();});

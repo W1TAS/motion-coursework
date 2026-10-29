@@ -2,7 +2,7 @@
 <html lang="ru">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f3f4f5"><title>Движение</title><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="stylesheet" href="style.css"></head>
 <body><div class="shell">
-<header class="app-header"><span class="brand">Движение</span><span class="version">0.1.13 · прототип</span></header>
+<header class="app-header"><span class="brand">Движение</span><span class="version">0.1.14 · прототип</span></header>
 <main>
 <section id="home">
 <div class="intro"><h1>Тренировка</h1><p>Выберите упражнение. Для отжиманий и планки снимайте сбоку, для подтягиваний — спереди.</p></div>
@@ -35,12 +35,12 @@
 <div class="workout-layout archive-layout">
 <div id="pullup-camera" class="camera archive-camera"><video id="pullup-video" playsinline muted preload="auto"></video><canvas id="pullup-overlay"></canvas><span id="pullup-badge" class="camera-badge">АНАЛИЗ КАДРОВ</span><span id="pullup-fps" class="fps"></span></div>
 <div class="archive-panel"><div class="pullup-inputs">
-<div class="camera-options pullup-source-options" role="group" aria-label="Источник подтягиваний"><button id="pullup-source-archive" type="button" aria-pressed="true">Записи</button><button id="pullup-source-camera" type="button" aria-pressed="false">Камера</button></div>
+<div class="camera-options pullup-source-options" role="group" aria-label="Источник подтягиваний"><button id="pullup-source-archive" type="button" aria-pressed="true">Примеры</button><button id="pullup-source-file" type="button" aria-pressed="false">Файл</button><button id="pullup-source-camera" type="button" aria-pressed="false">Камера</button></div>
 <label id="pullup-recording-options" class="archive-select">Видео<select id="pullup-select" aria-label="Выбрать запись"></select></label>
+<div id="pullup-file-options" class="pullup-file-options" hidden><button id="pullup-file-choose" class="secondary" type="button">Выбрать видео</button><span id="pullup-file-name" class="archive-small">Из памяти телефона</span></div><input id="pullup-file" type="file" accept="video/*,.mp4,.m4v,.mov,.webm,.mkv" hidden>
 <div id="pullup-camera-options" class="camera-options" role="group" aria-label="Камера для подтягиваний" hidden><button type="button" data-pullup-facing="user" aria-pressed="true">Фронтальная</button><button type="button" data-pullup-facing="environment" aria-pressed="false">Задняя</button></div>
-<label class="pullup-top-toggle"><input id="pullup-top-enabled" type="checkbox" checked> Показывать оценку высоты · эксперимент</label>
 </div>
-<div class="archive-analysis"><div class="archive-counter"><strong id="pullup-count">0</strong><span>подъёмов</span></div><p id="pullup-height-status" class="pullup-top-result" hidden></p><p id="pullup-face-status" class="archive-small">Точки лица: нет данных</p><h2 id="pullup-rep-title">Начало записи</h2><p id="pullup-status" class="archive-small"></p><div id="pullup-results"></div><details class="archive-small archive-disclosure"><summary>Условия съёмки и ограничения</summary><p>Поставьте телефон неподвижно спереди, без большого угла. В кадре должны быть лицо, обе кисти, плечи и таз. Считаются и неполные подъёмы. Оценка высоты приблизительная; «рот выше» не подтверждает правильность. После паузы нужно заново показать нижнюю точку. Полный возврат нужен для старой модели; перемотка сбрасывает счёт.</p></details></div>
+<div class="archive-analysis"><div class="archive-counter"><strong id="pullup-count">0</strong><span>подъёмов</span></div><p id="pullup-height-status" class="pullup-top-result" hidden></p><p id="pullup-face-status" class="archive-small">Точки лица: нет данных</p><h2 id="pullup-rep-title">Начало записи</h2><p id="pullup-status" class="archive-small"></p><div id="pullup-results"></div><details class="archive-small archive-disclosure"><summary>Съёмка и настройки оценки</summary><label class="pullup-top-toggle"><input id="pullup-top-enabled" type="checkbox" checked> Показывать оценку высоты · эксперимент</label><p>Поставьте телефон неподвижно спереди, без большого угла. В кадре должны быть лицо, обе кисти, плечи и таз. Считаются и неполные подъёмы. Оценка высоты приблизительная; «рот выше» не подтверждает правильность. После паузы нужно заново показать нижнюю точку. Полный возврат нужен для старой модели; перемотка сбрасывает счёт.</p></details></div>
 <div class="archive-controls"><div id="pullup-timeline"><label class="archive-small" for="pullup-seek">Позиция видео <span id="pullup-time">0 с</span></label><input id="pullup-seek" type="range" min="0" max="1" step="0.01" value="0" disabled></div><div class="controls"><button id="pullup-play" class="primary" disabled>Начать разбор</button><button id="pullup-restart" class="secondary" disabled>Сначала</button></div></div>
 </div></div></section>
 </main><footer>Курсовой проект</footer>
