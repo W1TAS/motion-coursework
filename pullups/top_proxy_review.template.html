@@ -1,0 +1,12 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Перепроверка верхней точки</title><style>__REVIEW_STYLE__
+.help{line-height:1.5}#comparison{font-size:12px;background:#e4e9df;padding:7px;border-radius:4px;white-space:pre-line}#comparison[hidden]{display:none}.legend{font-size:12px;color:#5d685e}#status{min-height:20px}
+.media video{opacity:0}.media canvas{background:#161d18}
+</style><main><header><h1>Верхняя точка · <span id="count"></span></h1><span id="progress"></span></header>
+<div class="workspace"><section class="viewer" aria-label="Видео"><div class="media"><video id="video" playsinline muted preload="metadata" aria-label="Видео подтягивания"></video><canvas id="overlay"></canvas></div>
+<div class="controls"><button id="play">▶ Подъём</button><button id="back-frame">− кадр</button><button id="forward-frame">+ кадр</button><button id="top">T · Верх</button><button id="peak">H · Пик лица</button><button id="zoom">Z · Крупно</button><button id="line">L · Линия вкл.</button><button id="speed">×1</button><input id="seek" type="range" min="0" max="10000" value="0" aria-label="Позиция видео"><span id="time"></span></div><div id="media-status" role="status"></div></section>
+<section class="panel" aria-label="Перепроверка"><h2>Подбородок достиг высоты перекладины?</h2><p class="hint">Оцени само видео. Линия по запястьям приблизительная; жёлтая точка — рот, красная — нос. Подбородок программа пока не измеряет.</p><div id="choices"></div><div id="status" role="status"></div>
+<button id="compare">R · Показать сравнение</button><div id="comparison" hidden></div>
+<div class="help"><kbd>1–4</kbd> ответ и следующий клип<br><kbd>Пробел</kbd> просмотр · <kbd>← →</kbd> кадр<br><kbd>T</kbd> верх · <kbd>H</kbd> пик лица на паузе<br><kbd>Z</kbd> крупно · <kbd>L</kbd> скрыть линии и точки<br><kbd>P / N</kbd> назад / вперёд · <kbd>Ctrl+S</kbd> сохранить</div><p class="hint">Прежние ответы сохраняются отдельно. Сравнение скрыто, чтобы не подсказывать оценку.</p></section></div>
+<footer><div id="answer-summary"></div><div class="footer-actions"><button id="prev">P · Назад</button><button id="next">N · Далее</button><button id="save" class="primary">Сохранить JSON</button></div></footer></main>
+<script>const topReviewData=__TOP_DATA__;</script><script>__TOP_JS__</script></html>

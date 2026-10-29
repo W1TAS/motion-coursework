@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Контроль подтягиваний — демонстрация</title>
+<style>
+:root{--ink:#18342c;--muted:#64776f;--green:#17644e;--paper:#f3f5f0;--line:#dbe2da;--amber:#8c5719;--red:#963e38}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 system-ui,sans-serif}header,main{max-width:1240px;margin:auto;padding:24px 30px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}h1{font-size:26px;letter-spacing:-.7px;margin:0}h2{font-size:20px;letter-spacing:-.3px;margin:0 0 15px}h3{font-size:16px;margin:0 0 8px}p{margin:8px 0}.muted,small{color:var(--muted)}.tag{border:1px solid #bfd2c5;background:#e3ede4;border-radius:30px;padding:7px 13px;font-size:12px}.tabs{display:flex;gap:8px;margin-bottom:22px}button,select{font:inherit;cursor:pointer;border:1px solid var(--line);background:white;border-radius:8px;padding:10px 14px;color:var(--ink)}button.active{background:var(--ink);color:white;border-color:var(--ink)}.section{display:none}.section.active{display:block}.grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(310px,1fr);gap:20px}.card{background:white;border:1px solid var(--line);border-radius:14px;padding:22px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}.toolbar select{max-width:100%}#sample{flex:1;min-width:190px}.stage{position:relative;aspect-ratio:16/10;background:#101a17;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:9px}.stage video{width:100%;height:100%;object-fit:contain}.stage canvas{position:absolute;pointer-events:none}.controls{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}.status{border-left:4px solid var(--green);padding:14px 16px;background:#edf5ef;border-radius:0 8px 8px 0;margin-bottom:18px}.status.warn{border-color:var(--amber);background:#fbf3e6}.status.bad{border-color:var(--red);background:#fbefeb}.result{padding:13px 0;border-top:1px solid var(--line)}.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.pill{font-size:12px;padding:4px 8px;background:#edf2ed;border-radius:5px}.pill.bad{color:var(--red);background:#fae7e2}.pill.warn{color:var(--amber);background:#f9efda}.bar{height:6px;border-radius:8px;background:#e8ede8;margin:10px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--green)}.trace{list-style:none;padding:0;margin:10px 0}.trace li{padding:8px 0;font-size:13px}.trace li::before{content:'✓';display:inline-block;margin-right:9px;color:var(--green)}.trace li.fail::before{content:'—';color:var(--amber)}.foot{margin-top:17px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}.stat{padding:18px;background:white;border:1px solid var(--line);border-radius:12px}.stat strong{display:block;font-size:29px;letter-spacing:-1px}.stat small{display:block}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:12px;text-align:left;border-bottom:1px solid var(--line)}th{font-size:12px;color:var(--muted)}.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}.flow{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}.flow div{flex:1;min-width:130px;background:#edf4ee;border:1px solid #cdddce;padding:16px;border-radius:9px}.flow span{display:block;color:var(--muted);font-size:12px;margin-top:5px}#error{color:var(--red)}a{color:var(--green)}.reference{background:#f4f5f1;padding:12px;border-radius:7px;margin-top:10px}.note{font-size:13px;background:#edf1e8;padding:12px;border-radius:8px;margin-top:15px}@media(max-width:850px){.grid,.two{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}header,main{padding:18px}header{gap:20px}.tabs{overflow:auto}h1{font-size:21px}.stage{aspect-ratio:16/11}}
+@media(max-width:850px){th,td{padding:8px;font-size:12px}.card{min-width:0}}
+</style>
+<header><div><h1>Контроль подтягиваний</h1><div class="muted">Видео → поза → признаки → объяснимый результат</div></div><span class="tag">Архивный анализ</span></header>
+<main><div class="tabs"><button class="active" data-tab="analysis">Анализ повторений</button><button data-tab="quality">Качество данных</button><button data-tab="architecture">Как устроена система</button></div>
+<p id="error" role="alert"></p>
+<section id="analysis" class="section active"><div class="grid">
+<div class="card"><div class="toolbar"><select id="filter" aria-label="Набор примеров"><option value="confirmed">Подтверждённые примеры</option><option value="rejected">Непригодные / сомнительные</option><option value="all">Все доступные фрагменты</option></select><select id="sample" aria-label="Повторение"></select></div>
+<div class="stage" id="stage"><video id="video" muted controls playsinline></video><canvas id="pose"></canvas></div>
+<div class="controls"><button id="repeat">Повторить фрагмент</button><label><input id="skeleton" type="checkbox" checked> Скелет</label><label>Скорость <select id="speed"><option value=".5">½×</option><option value="1" selected>1×</option></select></label></div>
+<p class="muted" id="interval"></p><div class="note" id="splitnote"></div>
+<div class="foot">Видео и ключевые точки сохранены заранее. При выборе примера классификатор и правила выполняются заново. Режим камеры смартфона в этом прототипе не реализован.</div></div>
+<div class="card"><h2>Результат анализа</h2><div class="status" id="status">Выберите повторение</div><div id="results"></div><h3 style="margin-top:22px">Почему получен этот результат</h3><ul class="trace" id="trace"></ul>
+<label><input id="showreference" type="checkbox"> Сравнить с ручной разметкой</label><div id="reference" class="reference" hidden></div>
+<div class="foot">Проверяются неполная амплитуда и раскачивание. «Не обнаружено» означает отсутствие срабатывания этих проверок, а не подтверждение всей техники. Оценки модели не откалиброваны как уверенность.</div></div>
+</div></section>
+<section id="quality" class="section"><div class="stats" id="stats"></div><div class="two"><div class="card"><h2>Данные и разметка</h2><table><thead><tr><th>Источник</th><th>Просмотрено</th><th>Пригодно</th></tr></thead><tbody id="pools"></tbody></table><p class="muted">«Пригодно» означает: есть ручная метка, файлы на месте, нет отметок непригодности, сомнения и исключения всего видео. Корректность техники требует отдельной проверки.</p><h3 style="margin-top:20px">Обнаруженная ошибка подготовки</h3><p id="auditissue"></p><p class="muted">Исправленный набор создан отдельно. Старые файлы не перезаписаны.</p></div>
+<div class="card"><h2>Проверка на отложенных источниках</h2><table><thead><tr><th>Критерий</th><th>Точность</th><th>Полнота</th><th>F1</th></tr></thead><tbody id="metrics"></tbody></table><p id="metricnote" class="muted"></p><div class="note">Это метрики классификатора до правил отказа. Они рассчитаны на всех размеченных проверочных повторениях исправленной выборки, а не на выбранных демонстрационных примерах.</div><p class="muted">Конфигурации и пороги выбраны по проверке с разделением каналов. Тест не использовался для выбора модели. Небольшое число ошибок ограничивает точность оценки.</p></div></div></section>
+<section id="architecture" class="section"><div class="card"><h2>Нейросетевое наблюдение + явные правила</h2><div class="flow"><div>Видео<span>Сохранённый источник и временные отметки</span></div><div>YOLO Pose<span>Ключевые точки и уверенности детектора</span></div><div>Признаки движения<span>Амплитуда, положение и изменение тела</span></div><div>Классификатор<span>Два независимых признака отклонения</span></div><div>Решатель правил<span>Проверка видимости, отказ или интерпретация</span></div></div>
+<div class="two"><div><h3>Что уже работает</h3><ul><li>Поиск и подготовка интернет-видео, журнал разметки.</li><li>Извлечение позы и выделение кандидатов на повторение.</li><li>Классификация двух признаков движения.</li><li>Изменяемые правила качества и объяснения решения.</li><li>Отдельная проверка данных и разделение каналов.</li></ul></div><div><h3>Границы текущей версии</h3><ul><li>Онлайн-анализ камеры ещё не подключён.</li><li>Отжимания и планка пока описаны в проектировании.</li><li>Ошибки скелета и границ всё ещё возможны.</li><li>Правила качества являются инженерными эвристиками.</li><li>Разделение по каналу не гарантирует независимость человека.</li></ul></div></div><div class="foot">База знаний хранится отдельно от модели. Её критерии видимости и тексты пояснений можно изменять без переобучения YOLO и классификатора.</div></div></section>
+</main>
+<script>
+let data=null,current=null,points=null,request=0;
+const $=id=>document.getElementById(id), video=$('video'), canvas=$('pose'), ctx=canvas.getContext('2d');
+const names={partial:'Неполная амплитуда',swing:'Раскачивание'};
+const edges=[[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+const pct=v=>(v*100).toFixed(0)+'%';
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab],.section').forEach(e=>e.classList.remove('active'));b.classList.add('active');$(b.dataset.tab).classList.add('active');});
+function fillList(preferred){
+ const mode=$('filter').value;
+ const samples=data.samples.filter(s=>mode==='all'||s.reference_state===mode).sort((a,b)=>(a.split==='test'?0:1)-(b.split==='test'?0:1)||a.id.localeCompare(b.id));
+ $('sample').replaceChildren(...samples.map((s,i)=>{const o=document.createElement('option');o.value=s.id;o.textContent=`Клип ${i+1} · ${s.view==='back'?'со спины':'спереди / под углом'} · ${(s.end-s.start).toFixed(1)} с`;return o;}));
+ if(typeof preferred==='string'&&samples.some(s=>s.id===preferred))$('sample').value=preferred;
+ if(samples.length)analyze();
+}
+async function analyze(){
+ const token=++request;const id=$('sample').value;$('error').textContent='';
+ try{
+  const r=await fetch('/api/analysis?rep='+encodeURIComponent(id));const result=await r.json();if(!r.ok)throw new Error(result.error);if(token!==request)return;
+  current=result;points=null;const d=result.decision;
+  $('status').className='status '+(d.state==='insufficient'?'warn':d.state==='deviation'?'bad':'');
+  $('status').textContent=d.state==='insufficient'?'Оценка ограничена: недостаточно данных':d.state==='deviation'?'Обнаружены признаки отклонения':'Проверяемые отклонения не обнаружены';
+  $('results').replaceChildren(...Object.entries(d.targets).map(([target,x])=>{
+   const box=document.createElement('div');box.className='result';
+   const row=document.createElement('div');row.className='row';const label=document.createElement('strong');label.textContent=names[target];
+   const badge=document.createElement('span');badge.className='pill '+(x.state==='flagged'?'bad':x.state==='unavailable'?'warn':'');badge.textContent=x.state==='flagged'?'Есть признаки':x.state==='unavailable'?'Нет оценки':'Не обнаружено';row.append(label,badge);box.append(row);
+   if(x.score!==null){const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('i');fill.style.width=pct(x.score);bar.append(fill);const detail=document.createElement('small');detail.textContent=`Оценка модели ${x.score.toFixed(3)} · порог ${x.threshold.toFixed(3)}`;box.append(bar,detail);}return box;
+  }));
+  $('trace').replaceChildren(...d.trace.map(t=>{const li=document.createElement('li');li.className=t.passed?'':'fail';li.textContent=t.explanation;return li;}));
+  $('interval').textContent=`Выделенный фрагмент: ${result.start.toFixed(2)}–${result.end.toFixed(2)} с. Для контекста добавлено по 0,2 с.`;
+  $('splitnote').textContent=result.split==='test'?'Отложенный пример: источник не участвовал в обучении модели.':result.split==='train'||result.split==='val'?'Пример из разработки: его показ не является доказательством качества на новых людях.':'Фрагмент не включён в обучающую выборку.';
+  reference();
+  const url='/video/'+encodeURIComponent(result.video_id);const start=()=>{video.currentTime=Math.max(0,result.start-.2);video.play().catch(()=>{});};
+  if(video.dataset.id!==result.video_id){video.dataset.id=result.video_id;video.src=url;video.addEventListener('loadedmetadata',start,{once:true});}else start();
+  const k=await fetch('/api/kps?rep_id='+encodeURIComponent(id));const body=await k.json();if(token===request&&k.ok)points=body;
+ }catch(e){$('error').textContent='Не удалось проанализировать пример: '+e.message;}
+}
+function reference(){const r=current&&current.reference;$('reference').hidden=!$('showreference').checked;$('reference').textContent=!r?'Ручной разметки пока нет.':r.bad?'Человек исключил фрагмент как непригодный.':r.unsure?'Человек отметил сомнение: пример исключён из обучения.':r.clean?'Ручная разметка: проверяемые ошибки не отмечены.':'Ручная разметка: '+Object.keys(r.labels).map(k=>names[k]||k).join(', ');}
+function render(){requestAnimationFrame(render);if(!current)return;
+ if(video.currentTime>current.end+.2&&!video.paused)video.currentTime=Math.max(0,current.start-.2);
+ const w=video.clientWidth,h=video.clientHeight;const vw=video.videoWidth||16,vh=video.videoHeight||9;const scale=Math.min(w/vw,h/vh);
+ canvas.width=Math.round(vw*scale);canvas.height=Math.round(vh*scale);ctx.clearRect(0,0,canvas.width,canvas.height);
+ if(!points||!$('skeleton').checked)return;
+ let index=0,best=Infinity;for(let i=0;i<points.t.length;i++){const delta=Math.abs(points.t[i]-video.currentTime);if(delta<best){best=delta;index=i;}}
+ if(best>.12)return;const kp=points.kp[index],cf=points.conf[index];const sx=canvas.width/points.wh[0],sy=canvas.height/points.wh[1];
+ ctx.lineWidth=2;ctx.strokeStyle='#73ffc5';for(const [a,b] of edges){if(cf[a]<.3||cf[b]<.3)continue;ctx.beginPath();ctx.moveTo(kp[a][0]*sx,kp[a][1]*sy);ctx.lineTo(kp[b][0]*sx,kp[b][1]*sy);ctx.stroke();}
+ ctx.fillStyle='#e8fff4';kp.forEach((p,i)=>{if(cf[i]<.3)return;ctx.beginPath();ctx.arc(p[0]*sx,p[1]*sy,2.5,0,Math.PI*2);ctx.fill();});
+}
+function showAudit(){
+ const a=data.audit,old=a.historical_dataset,clean=a.audited_dataset,news=a.pools.internet_data;
+ const stats=[['Пригодных повторений',clean?clean.n:'—'],['Новых подтверждённых',news.eligible],['Отложенных повторений',clean?clean.splits.test:'—'],['Классифицируемых признака',2]];
+ $('stats').replaceChildren(...stats.map(([label,n])=>{const div=document.createElement('div');div.className='stat';const big=document.createElement('strong');big.textContent=n;const small=document.createElement('small');small.textContent=label;div.append(big,small);return div;}));
+ $('pools').replaceChildren(...Object.entries(a.pools).map(([name,p])=>{const tr=document.createElement('tr');for(const val of [name==='data'?'Исходный пул':'Новые интернет-видео',p.reviewed,p.eligible]){const td=document.createElement('td');td.textContent=val;tr.append(td);}return tr;}));
+ $('auditissue').textContent=`В старый датасет попали ${old.banned_video_samples} повторения из роликов, исключённых целиком. Из них ${old.banned_by_split.test||0} находились в тесте. Исправлено правило подготовки данных; прежние результаты требуют пересмотра.`;
+ $('metrics').replaceChildren(...Object.entries(data.metrics.targets||{}).map(([target,m])=>{const tr=document.createElement('tr');for(const val of [names[target],pct(m.precision),pct(m.recall),m.f1.toFixed(3)]){const td=document.createElement('td');td.textContent=val;tr.append(td);}return tr;}));
+ $('metricnote').textContent=`Проверка: ${clean?clean.splits.test:'—'} повторений; ${data.metrics.n_groups||'—'} каналов. После исправления изменился состав теста, поэтому сравнивать эти числа с прежними как прямой прирост нельзя.`;
+}
+$('filter').onchange=fillList;$('sample').onchange=analyze;$('showreference').onchange=reference;$('repeat').onclick=()=>{if(current){video.currentTime=Math.max(0,current.start-.2);video.play();}};$('speed').onchange=()=>video.playbackRate=Number($('speed').value);
+fetch('/api/demo').then(r=>r.json()).then(d=>{data=d;showAudit();const preferred=new URLSearchParams(location.search).get('sample');if(preferred&&d.samples.some(s=>s.id===preferred&&s.reference_state!=='confirmed'))$('filter').value='all';fillList(preferred);}).catch(e=>$('error').textContent=e.message);render();
+</script></html>

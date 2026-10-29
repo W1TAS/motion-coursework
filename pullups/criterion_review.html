@@ -1,0 +1,105 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Подтягивания — разметка отдельных критериев</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f4f1;color:#232724;font:16px/1.45 system-ui}main{max-width:1100px;margin:auto;padding:20px}h1{font-size:23px;margin:0 0 8px}h2{font-size:18px}p{margin:8px 0}button,select,textarea{font:inherit;padding:10px;border:1px solid #b2b6af;border-radius:4px;background:white;color:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:3px solid #3d7968}select,textarea{width:100%;margin-top:5px}label{display:block;margin:10px 0}.media{position:relative;background:#151816;height:48vh}.media video,.media canvas{position:absolute;width:100%;height:100%;object-fit:contain;inset:0}.media canvas{pointer-events:none}.controls{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.phase{border-top:1px solid #d7d9d3;padding:10px 0}.phase strong{display:block;margin-bottom:6px}.phase button{padding:7px;margin:2px}.muted{font-size:14px;color:#535a53}#time{font-variant-numeric:tabular-nums;padding:8px;background:#e6e7e2}#time.inside{background:#dcebd9}#status{min-height:24px}.bad{color:#9b3124}.main-action{background:#293d34;color:white;border-color:#293d34}summary{cursor:pointer}.footer{border-top:1px solid #aaa;margin-top:15px;padding-top:10px}@media(max-width:650px){main{padding:12px}.grid{grid-template-columns:1fr;gap:0}.media{height:40vh}}
+</style><main>
+<h1>Подтягивания · <span id="count"></span></h1>
+<p>Оцени одно движение возле зелёного интервала. Интервал предложен автоматически: при ошибке границ укажи правильные кадры, даже за его пределами.</p>
+<p class="muted">Оцени технику по движению человека. Скелет показан для проверки распознавания: скачок точек сам по себе не означает ошибку человека. При необходимости скелет можно скрыть. Надписи автора видео могут быть ошибочны.</p>
+<div class="media"><video id="video" controls playsinline preload="metadata"></video><canvas id="overlay"></canvas></div>
+<div id="time"></div><p id="media-status" class="muted" role="status"></p><div class="controls"><button id="back-frame">− кадр</button><button id="forward-frame">+ кадр</button><button id="slow">×0,5</button><button id="normal">×1</button><button id="replay">К интервалу</button></div>
+<div class="controls"><button id="skip-back">Со спины — пропустить клип</button><button id="resume-review" hidden>Продолжить разметку этого клипа</button></div><p id="skip-status" class="muted"></p>
+<div class="grid"><section><h2>1. Что видно на видео</h2><div id="fields"></div></section>
+<section><h2>2. Укажи положения</h2><p class="muted">Поставь видео на паузу в нужном кадре. Низ — начало выбранного подъёма, верх — его наивысшее положение, возврат — следующая нижняя точка. Если положение не попало в ролик или неразличимо, отметь это.</p><p id="auto-phase-status" class="muted"></p><button id="confirm-phases" class="main-action">Подтвердить все предложенные фазы</button><div id="phases"></div>
+<details id="pose-panel" open><summary>3. Проверить скелет отдельно</summary><label><input type="checkbox" id="show-pose" checked> Показать точки распознавания</label><p class="muted" id="pose-info">Сохранённые MediaPipe-точки; вне доступного кэша скелет не показывается.</p><label>Насколько скелет соответствует человеку?<select id="pose-quality"><option value="not_reviewed">Не проверял</option><option value="usable">Основные суставы отслеживаются верно</option><option value="unstable">Есть заметные скачки или неверные суставы</option><option value="missing">Нужные точки часто отсутствуют</option></select></label></details>
+<label>Комментарий (необязательно)<textarea id="note" rows="2"></textarea></label></section></div>
+<div class="footer"><div class="controls"><button id="prev">← Назад</button><button id="next">Дальше →</button><button id="save" class="main-action">Сохранить ответы JSON</button></div><p id="status" role="status"></p><p class="muted">Можно сохранить незавершённую партию. Сохрани JSON перед закрытием: локальное хранение зависит от браузера. Прогнозы ошибок и прежние метки скрыты. Времена фаз могут быть предложены автоматически, но сохраняются только после подтверждения. Для техники используются отдельные ответы; «не могу определить» не означает «ошибки нет».</p></div>
+</main><script>
+const items=__ITEMS__,poses=__POSES__,key='pullup-criterion-review-v2-batch-02';
+const frameTimes=__FRAME_TIMES__;
+const phaseSuggestions={}; // Replaced by the frozen-packet updater when available.
+const fields=[
+ ['attempt','Какое это движение?',[['attempt','Попытка подтягивания'],['exaggerated_error_demo','Утрированная демонстрация ошибки'],['not_pullup','Другое движение, не попытка подтягивания'],['unknown','Не могу определить']]],
+ ['bottom_incomplete','В нижней точке руки остались заметно согнутыми?',[['0','Нет, полностью или почти полностью разогнуты'],['1','Да, заметно согнуты'],['unknown','Низ не виден / не могу определить']]],
+ ['top_below_bar','В верхней точке подбородок не достиг перекладины?',[['0','Нет, подбородок видимо выше перекладины'],['1','Да, остался ниже / на уровне перекладины'],['unknown','Ракурс или перекрытие мешают определить']]],
+ ['swing_ascent','При подъёме есть заметная раскачка или рывок ногами?',[['0','Нет заметной раскачки или рывка'],['1','Да, заметно'],['unknown','Не могу определить']]]
+];
+const $=id=>document.getElementById(id),video=$('video'),canvas=$('overlay'),phaseKeys=['bottom','top','return'];let index=0,answers={},phaseTimes={},phaseSources={},reviewStatus=null;
+let loadEpoch=0,loadAbort=null,objectURL=null,mediaReady=false;
+function mediaState(ready,message){mediaReady=ready;video.dataset.ready=String(ready);$('media-status').textContent=message;for(const id of ['back-frame','forward-frame','slow','normal','replay'])$(id).disabled=!ready;for(const b of document.querySelectorAll('[data-phase]'))b.disabled=!ready;renderPhases();}
+async function loadVideo(item){
+ const epoch=++loadEpoch;loadAbort?.abort();loadAbort=new AbortController();video.pause();video.removeAttribute('src');video.load();
+ if(objectURL){URL.revokeObjectURL(objectURL);objectURL=null;}mediaState(false,'Загружаю видео для точной перемотки…');
+ try{
+  let source=item.file;
+  // Python's simple HTTP server does not provide byte ranges. Loading the
+  // whole short clip as a Blob gives the browser a fully seekable local source.
+  // file:// already supports local seeking and must not use a blocked fetch.
+  if(location.protocol!=='file:'){
+   const response=await fetch(item.file,{signal:loadAbort.signal});if(!response.ok)throw Error('Не удалось загрузить видео');
+   const blob=await response.blob();if(epoch!==loadEpoch)return;
+   objectURL=URL.createObjectURL(new Blob([blob],{type:'video/mp4'}));source=objectURL;
+  }
+  if(epoch!==loadEpoch)return;video.src=source;video.load();
+ }catch(error){if(epoch===loadEpoch&&error.name!=='AbortError')mediaState(false,'Видео не загрузилось. Выберите клип повторно.');}
+}
+try{const stored=JSON.parse(localStorage.getItem(key)||'{}');answers=stored.answers||{};index=Math.max(0,Math.min(items.length-1,stored.index||0))}catch{}
+for(const [id,title,options]of fields){const l=document.createElement('label');l.textContent=title;const s=document.createElement('select');s.id=id;s.add(new Option('Выберите ответ',''));for(const[value,text]of options)s.add(new Option(text,value));s.onchange=()=>{reviewStatus=null;record()};l.append(s);$('fields').append(l)}
+function suggestion(id){const value=phaseSuggestions[items[index].id]?.times?.[id];return Number.isFinite(value)&&value>=0&&value<items[index].duration?value:null;}
+function frameTime(time){
+ const times=frameTimes[items[index].id]||[];if(!times.length)return time;
+ let at=0;for(let i=1;i<times.length;i++)if(Math.abs(times[i]-time)<Math.abs(times[at]-time))at=i;
+ return (times[at]+Math.min(items[index].duration,times[at+1]??items[index].duration))/2;
+}
+function seekPaused(time){if(!mediaReady||!Number.isFinite(time))return;video.pause();video.currentTime=Math.min(video.duration,time);}
+function acceptSuggestion(id){const value=suggestion(id);if(value===null||!mediaReady)return;phaseTimes[id]=frameTime(value);phaseSources[id]={kind:'auto_confirmed',method:phaseSuggestions[items[index].id].method,suggested_time:value};}
+for(const [id,title]of [['bottom','Низ'],['top','Верх'],['return','Возврат']]){
+ const row=document.createElement('div');row.className='phase';
+ const label=document.createElement('strong');label.id='phase-'+id;row.append(label);
+ const hint=document.createElement('p');hint.id='hint-'+id;hint.className='muted';row.append(hint);
+ const go=document.createElement('button');go.id='go-'+id;go.textContent='К отмеченному кадру';go.onclick=()=>seekPaused(phaseTimes[id]);
+ const preview=document.createElement('button');preview.id='preview-'+id;preview.textContent='Посмотреть предложение';preview.setAttribute('aria-label',title+': посмотреть предложение');preview.onclick=()=>seekPaused(frameTime(suggestion(id)));
+ const accept=document.createElement('button');accept.id='accept-'+id;accept.textContent='Подтвердить';accept.setAttribute('aria-label',title+': подтвердить предложение');accept.onclick=()=>{acceptSuggestion(id);record();renderPhases()};
+ const set=document.createElement('button');set.textContent='Отметить текущий кадр';set.dataset.phase=id;set.onclick=()=>{video.pause();phaseTimes[id]=Math.round(video.currentTime*1000)/1000;phaseSources[id]={kind:'manual'};record();renderPhases()};
+ const unknown=document.createElement('button');unknown.textContent='Не видно';unknown.dataset.unknownPhase=id;unknown.onclick=()=>{phaseTimes[id]=null;phaseSources[id]={kind:'not_visible'};record();renderPhases()};
+ const clear=document.createElement('button');clear.textContent='Сбросить';clear.onclick=()=>{delete phaseTimes[id];delete phaseSources[id];record();renderPhases()};
+ row.append(preview,accept,go,set,unknown,clear);$('phases').append(row);
+}
+$('confirm-phases').onclick=()=>{video.pause();for(const id of phaseKeys)if(!(id in phaseTimes))acceptSuggestion(id);record();renderPhases()};
+
+function validate(a){if(fields.some(([id])=>!a[id]))return 'Заполни четыре ответа по видео.';if(phaseKeys.some(k=>!(k in a.phase_times)))return 'Для каждого положения отметь кадр или «Не видно».';const t=phaseKeys.map(k=>a.phase_times[k]).filter(v=>v!==null);if(t.some(v=>!Number.isFinite(v)||v<0||v>items[index].duration))return 'Кадр за пределами ролика.';if(t.some((v,i)=>i>0&&t[i-1]>=v))return 'Порядок кадров должен быть: низ → верх → возврат.';return ''}
+function record(){const a={...Object.fromEntries(fields.map(([id])=>[id,$(id).value])),phase_times:{...phaseTimes},phase_sources:{...phaseSources},review_status:reviewStatus,...(reviewStatus==='skipped_back'?{facing:'back'}:{}),pose_quality:$('pose-quality').value,note:$('note').value};const skipped=reviewStatus==='skipped_back';const error=skipped?'':validate(a);a.complete=!skipped&&!error;answers[items[index].id]=a;try{localStorage.setItem(key,JSON.stringify({answers,index}))}catch{}const n=Object.values(answers).filter(a=>a.complete).length;const skippedCount=Object.values(answers).filter(a=>a.review_status==='skipped_back').length;$('status').textContent=`Просмотрено ${n+skippedCount} из ${items.length}: размечено ${n}, пропущено со спины ${skippedCount}. ${error}`;$('skip-status').textContent=skipped?'Клип пропущен: съёмка со спины. Техника и фазы не используются для оценки.':'';$('resume-review').hidden=!skipped;$('status').className=error?'bad':'';return a}
+function renderPhases(){
+ const proposed=phaseKeys.filter(k=>suggestion(k)!==null);
+ $('auto-phase-status').textContent=proposed.length?'Это подсказки по движению скелета, а не проверенная разметка. Просмотри каждый кадр на паузе. Общая кнопка заполняет только ещё не отмеченные фазы; твои ответы сохраняются.':'Для этого движения система не смогла надёжно определить фазы. Укажи кадры вручную или выбери «Не видно».';
+ $('confirm-phases').disabled=!mediaReady||proposed.length!==3||!phaseKeys.some(k=>!(k in phaseTimes));
+ for(const[k,title]of [['bottom','Низ'],['top','Верх'],['return','Возврат']]){
+  $('phase-'+k).textContent=title+': '+(!(k in phaseTimes)?'не отмечен':phaseTimes[k]===null?'не видно':phaseTimes[k].toFixed(2)+' с');
+  const value=suggestion(k);$('hint-'+k).textContent=value===null?'Автоматической подсказки нет.':'Предложено: '+frameTime(value).toFixed(2)+' с'+(phaseSources[k]?.kind==='auto_confirmed'?' · подтверждено':'');
+  $('preview-'+k).disabled=!mediaReady||value===null;$('accept-'+k).disabled=!mediaReady||value===null;
+  $('go-'+k).disabled=!mediaReady||!Number.isFinite(phaseTimes[k]);
+ }
+}
+function show(){const item=items[index],a=answers[item.id]||{};video.playbackRate=1;reviewStatus=a.review_status||null;phaseTimes={...(a.phase_times||{})};phaseSources={...(a.phase_sources||Object.fromEntries(Object.keys(phaseTimes).map(k=>[k,{kind:phaseTimes[k]===null?'not_visible':'manual'}])))};for(const[id]of fields)$(id).value=a[id]||'';$('pose-quality').value=a.pose_quality||'not_reviewed';$('note').value=a.note||'';$('show-pose').checked=true;canvas.hidden=false;$('pose-panel').open=true;$('count').textContent=`${index+1} / ${items.length}`;$('prev').disabled=index===0;$('next').disabled=index===items.length-1;renderPhases();record();loadVideo(item);draw()}
+const bones=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+function draw(){const item=items[index],time=video.currentTime;$('time').textContent=`${time.toFixed(2)} с · предложенный интервал ${item.windowStart.toFixed(2)}–${item.windowEnd.toFixed(2)} с`;$('time').classList.toggle('inside',time>=item.windowStart&&time<=item.windowEnd);const ctx=canvas.getContext('2d');canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||640;ctx.clearRect(0,0,canvas.width,canvas.height);if(!$('show-pose').checked)return;const frames=poses[item.id]||[];let nearest=null;for(const f of frames)if(!nearest||Math.abs(f.t-time)<Math.abs(nearest.t-time))nearest=f;if(!nearest||Math.abs(nearest.t-time)>.075||!nearest.p){$('pose-info').textContent='Для этого кадра нет сохранённых точек. Это не оценка техники.';return}$('pose-info').textContent='Сохранённые точки MediaPipe. Проверь их соответствие суставам.';ctx.strokeStyle='#f2df65';ctx.fillStyle='#f2df65';ctx.lineWidth=Math.max(2,canvas.width/220);const good=p=>p&&p[2]>=.45&&p.every(Number.isFinite);for(const[a,b]of bones){const x=nearest.p[a],y=nearest.p[b];if(!good(x)||!good(y))continue;ctx.beginPath();ctx.moveTo(x[0]*canvas.width,x[1]*canvas.height);ctx.lineTo(y[0]*canvas.width,y[1]*canvas.height);ctx.stroke()}for(const p of nearest.p){if(!good(p))continue;ctx.beginPath();ctx.arc(p[0]*canvas.width,p[1]*canvas.height,Math.max(2,canvas.width/180),0,Math.PI*2);ctx.fill()}}
+video.ontimeupdate=draw;video.onseeked=draw;video.onloadedmetadata=draw;
+video.onloadeddata=()=>{mediaState(true,'');draw()};video.onerror=()=>mediaState(false,'Не удалось открыть видео. Выберите клип повторно.');
+if(video.requestVideoFrameCallback){const tick=()=>{draw();video.requestVideoFrameCallback(tick)};video.requestVideoFrameCallback(tick)}
+$('show-pose').onchange=()=>{canvas.hidden=!$('show-pose').checked;draw()};$('pose-quality').onchange=record;$('note').oninput=record;
+for(const[id,step]of [['back-frame',-1],['forward-frame',1]])$(id).onclick=()=>{
+ if(!mediaReady)return;video.pause();
+ // Use actual encoded presentation times: some clips begin at 0.04 s.
+ // Seek within the target frame, not on a floating-point frame boundary.
+ const times=frameTimes[items[index].id];if(!times?.length)return;
+ let current=0;for(let i=1;i<times.length&&times[i]<=video.currentTime+1e-6;i++)current=i;
+ const target=Math.max(0,Math.min(times.length-1,current+step));
+ const end=Math.min(video.duration,times[target+1]??video.duration);
+ video.currentTime=Math.min(video.duration,(times[target]+end)/2);
+};
+$('slow').onclick=()=>video.playbackRate=.5;$('normal').onclick=()=>video.playbackRate=1;$('replay').onclick=()=>seekPaused(frameTime(items[index].windowStart));
+$('skip-back').onclick=()=>{video.pause();if($('facing'))$('facing').value='back';reviewStatus='skipped_back';record();if(index<items.length-1){index++;show()}};
+$('resume-review').onclick=()=>{reviewStatus=null;record()};
+$('prev').onclick=()=>{record();index--;show()};$('next').onclick=()=>{record();index++;show()};
+$('save').onclick=()=>{record();const data={schema:2,batch:'criteria-02',scope:'Human video judgments and separate pose-quality review; development only',items,answers,exportedAt:new Date().toISOString()};const u=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=u;a.download='pullup-criteria-02-answers.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};show();
+</script></html>
