@@ -1,5 +1,6 @@
 import {PullupModelSession,extractModelFeatures,classifyFeatures} from './pullup-model.mjs';
 import {measureAutomaticBottom,experimentalBottomDecision} from './pullup-bottom.mjs';
+import {assessPullupTop} from './pullup-top.mjs';
 
 // The candidate 140/65-degree correctness rule failed the reserved split.
 // Expose measurements only: elbow range cannot establish chin-over-bar height.
@@ -12,6 +13,7 @@ export function assessArmRange(extracted){
 }
 
 export class PullupAnalysisSession extends PullupModelSession{
+ constructor(model,topPrior=null){super(model);this.topPrior=topPrior;}
  reset(){super.reset();this.bottomFrames=[];}
  observe(points,time,width,height,phase,worldLandmarks=null){
   if(time>this.lastTime){
@@ -25,11 +27,12 @@ export class PullupAnalysisSession extends PullupModelSession{
  }
  assessAscent(rep){
   const initialBottom=measureAutomaticBottom(this.bottomFrames,rep);
-  return {initialBottom,bottomCandidate:experimentalBottomDecision(initialBottom)};
+  return {initialBottom,bottomCandidate:experimentalBottomDecision(initialBottom),
+   topHeight:assessPullupTop(this.bottomFrames,rep,this.topPrior)};
  }
  classify(rep){
   const full=extractModelFeatures(this.frames,rep,this.previous);
-  const result=classifyFeatures(this.model,full);
+  const result=this.model?classifyFeatures(this.model,full):{error:'Обученная модель недоступна; геометрические измерения работают отдельно'};
   result.geometry=assessArmRange(full);
   Object.assign(result,this.assessAscent(rep));
   if(full){this.previous.push(full.stats);if(this.previous.length>30)this.previous.shift();}

@@ -19,3 +19,12 @@ test('lost initial position is explained rather than declared normal',()=>{
  assert.match(view.rows.join(' '),/Начало потеряно/);assert.equal(view.bottomCandidate.state,'unavailable');
  assert.equal(pullupResultView(null),null);
 });
+test('top feedback distinguishes low, uncertain and above without a correctness verdict; it can be hidden',()=>{
+ for(const state of ['below','above','uncertain','unavailable']){
+  const ascent={index:1,analysis:{topHeight:{state,reason:'Мало кадров'}}};
+  const view=pullupResultView(ascent);
+  assert.ok(view.rows.some(t=>t.startsWith('Верх:')));assert.equal(view.topHeight.state,state);
+  const off=pullupResultView(ascent,null,{topEnabled:false});assert.equal(off.topHeight,null);
+  assert.ok(!off.rows.some(t=>t.startsWith('Верх:')));
+ }
+});

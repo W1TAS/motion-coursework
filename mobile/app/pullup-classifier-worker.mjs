@@ -3,8 +3,10 @@ let session=null;
 self.onmessage=async({data})=>{
  try{
   if(data.type==='init'){
-   const r=await fetch(new URL('./models/pullup-hgb.json',import.meta.url));if(!r.ok)throw Error('Не удалось загрузить классификатор');
-   session=new PullupAnalysisSession(await r.json());self.postMessage({type:'ready'});
+   const read=async name=>{const r=await fetch(new URL('./models/'+name,import.meta.url));if(!r.ok)throw Error('Не удалось загрузить '+name);return r.json();};
+   const [model,prior]=await Promise.allSettled([read('pullup-hgb.json'),read('pullup-top-prior.json')]);
+   session=new PullupAnalysisSession(model.status==='fulfilled'?model.value:null,prior.status==='fulfilled'?prior.value:null);
+   self.postMessage({type:'ready',modelAvailable:model.status==='fulfilled',topAvailable:prior.status==='fulfilled'});
   }else if(data.type==='reset')session?.reset();
   else if(data.type==='observe'){
    session.observe(data.points,data.time,data.width,data.height,data.phase,data.worldLandmarks);

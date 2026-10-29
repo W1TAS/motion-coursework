@@ -58,7 +58,7 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(200);self.send_header('Cache-Control','no-store');self.send_header('Content-Type','application/vnd.android.package-archive');self.send_header('Content-Length',str(apk.stat().st_size));self.end_headers();return
   super().do_HEAD()
  def end_headers(self):
-  self.send_header('X-Content-Type-Options','nosniff');super().end_headers()
+  self.send_header('X-Content-Type-Options','nosniff');self.send_header('Cache-Control','no-store');super().end_headers()
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--host',default='127.0.0.1');p.add_argument('--port',type=int,default=8770);a=p.parse_args()
  Handler.extensions_map.update({'.mjs':'text/javascript','.wasm':'application/wasm','.task':'application/octet-stream'})
